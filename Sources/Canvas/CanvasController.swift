@@ -322,6 +322,7 @@ final class CanvasController {
         minimap.onBringBack = { [weak self] proxy in self?.bringBack(proxy) }
         view.onPress = { [weak self] proxy, point in self?.press(proxy, at: point) }
         view.onAddWidgets = { [weak self] in self?.addWidgets() }
+        view.onOpenHere = { [weak self] point in self?.openHere(at: point) }
         view.onAnimationCancelled = { [weak self] in
             guard let self else { return }
             handingOff = false
@@ -485,6 +486,12 @@ final class CanvasController {
         asleep = dormancy.asleep
         if !asleep { startSyncTimer() }
         configureRenderer(Settings.renderer)
+        // Open Here…'s list of apps, walked in the background before the first right-click wants it.
+        if isLead {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                MainActor.assumeIsolated { AppCatalog.shared.refresh() }
+            }
+        }
     }
 
     // MARK: Rendering mode
@@ -1105,6 +1112,140 @@ final class CanvasController {
             guard let app else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.expectArrival(of: app, name: name) }
+            }
+        }
+    }
+
+    // MARK: Open Here
+
+    /// Right-click › Open Here… picked an app: its next window on the canvas lands on `spot`
+    /// (`placeNewWindows`), the windows it already has excepted.
+    private struct OpenHere {
+        let name: String
+        let bundleID: String?
+        let pid: pid_t?
+        /// World point the window's middle goes to.
+        let spot: CGPoint
+        /// ⌘⏎: go into the window once it's there.
+        let enter: Bool
+        let known: Set<CGWindowID>
+        let deadline: Date
+        /// When the first window took the spot: others of the app arriving with it (a browser restoring
+        /// several) go beside it for a moment more.
+        var placedAt: Date?
+    }
+    private var openingHere: OpenHere?
+    private var openHerePanel: OpenHerePanel?
+    /// A running app asked for a new window gets this long to show one before its last-used window is
+    /// brought to the spot instead.
+    static let openHereNewWindowWait: TimeInterval = 2
+    /// After the first window, how long the app's other new windows still count as Open Here's.
+    static let openHereSiblingWait: TimeInterval = 1
+
+    /// The bar over the canvas, ringing the spot until it's dismissed.
+    func openHere(at spot: CGPoint) {
+        guard NSApp.isActive, activeProxy == nil, !handingOff, restoring == nil, addingWidgets == nil,
+              !Settings.stripMode else { return }
+        if openHerePanel == nil {
+            let panel = OpenHerePanel(catalog: AppCatalog.shared)
+            panel.onDismiss = { [weak self] in self?.view.openHereMark = nil }
+            openHerePanel = panel
+        }
+        openHerePanel?.onOpen = { [weak self] app, enter in self?.open(app, at: spot, enter: enter) }
+        closeSwitcher(clearHighlight: true)
+        view.openHereMark = spot
+        openHerePanel?.show(over: window)
+    }
+
+    /// The app picked in the bar. Not running, or running with no window: opened (a running app is sent
+    /// the reopen a Dock click sends), behind the canvas. Running with windows: its New Window item is
+    /// pressed, and if no window shows in `openHereNewWindowWait` (an app with one window, an item that
+    /// makes no window) the window used last glides to the spot instead.
+    private func open(_ app: AppEntry, at spot: CGPoint, enter: Bool) {
+        let bundleID = Bundle(url: app.url)?.bundleIdentifier
+        guard bundleID == nil || bundleID != Bundle.main.bundleIdentifier else { return NSSound.beep() }
+        AppCatalog.shared.noteLaunch(app)
+        let running = bundleID.flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0).first { !$0.isTerminated } }
+        let pid = running?.processIdentifier
+        let known = Set((Array(proxies.values) + Array(away.values)).filter { $0.matches(bundleID: bundleID, pid: pid) }.map(\.windowID))
+        openingHere = OpenHere(name: app.name, bundleID: bundleID, pid: pid, spot: spot, enter: enter, known: known,
+                            deadline: Date().addingTimeInterval(CanvasController.launchWait))
+        guard let running, !known.isEmpty else {
+            NSLog("Open Here: \(running == nil ? "launching" : "reopening") \(app.name) at \(spot)")
+            open(appAt: app.url, name: app.name)
+            return
+        }
+        NSLog("Open Here: asking \(app.name) for a new window at \(spot)")
+        let pidValue = running.processIdentifier
+        AXQueue.interactive.async { [weak self] in
+            let pressed = NewWindowMenu.press(pid: pidValue)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.openingHere?.pid == pidValue, self.openingHere?.placedAt == nil else { return }
+                    if pressed, let running = NSRunningApplication(processIdentifier: pidValue) {
+                        self.expectArrival(of: running, name: app.name)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + CanvasController.openHereNewWindowWait) { [weak self] in
+                            MainActor.assumeIsolated { self?.openHereFallback(pid: pidValue) }
+                        }
+                    } else {
+                        NSLog("Open Here: \(app.name) has no New Window item")
+                        self.openHereFallback(pid: pidValue)
+                    }
+                }
+            }
+        }
+    }
+
+    /// No new window came: the app's window used last glides to the spot (beside what's there), as a drag
+    /// would put it.
+    private func openHereFallback(pid: pid_t) {
+        guard let pending = openingHere, pending.pid == pid, pending.placedAt == nil else { return }
+        openingHere = nil
+        guard NSApp.isActive, activeProxy == nil, !handingOff, restoring == nil, !Settings.stripMode else { return }
+        let windows = view.proxies.filter { $0.kind == .window && $0.pid == pid }
+        guard let p = mru.lazy.compactMap({ id in windows.first { $0.windowID == id } }).first ?? windows.last else {
+            NSLog("Open Here: \(pending.name) has no window on the canvas to bring over")
+            return
+        }
+        view.release(p)   // moved on its own: it leaves its group
+        let others = view.proxies.filter { $0.kind == .window && $0 !== p }.map(\.worldRect) + away.values.map(\.worldRect)
+        let gap = Tidy.Spacing.normal.points(gap: Settings.tileGap)
+        let to = NewWindowSpot.spot(size: p.worldRect.size, avoiding: others, view: view.camera.toWorld(visibleTopLeft),
+                                    gap: gap, target: pending.spot)
+        NSLog("Open Here: no new window from \(pending.name) — bringing \(p.title) over, \(p.worldRect.origin) → \(to.origin)")
+        p.tile = nil
+        view.bringToFront(p)
+        view.glide([(p, to.origin)], duration: CanvasView.cameraDuration)
+        rememberSoon()
+        if pending.enter { enterOpenedHere(p, after: CanvasView.cameraDuration + 0.05) }
+    }
+
+    /// The spot a window just made should take, if it's the one Open Here… is waiting for: the app's, and
+    /// not one it already had. The first one marks the spot taken; the app's others for a moment after
+    /// go beside it.
+    private func openHereSpot(for p: WindowProxy) -> CGPoint? {
+        guard var pending = openingHere else { return nil }
+        let now = Date()
+        let expired = pending.placedAt.map { now >= $0.addingTimeInterval(CanvasController.openHereSiblingWait) } ?? (now >= pending.deadline)
+        guard !expired else {
+            openingHere = nil
+            return nil
+        }
+        guard p.kind == .window, !pending.known.contains(p.windowID), p.matches(bundleID: pending.bundleID, pid: pending.pid) else { return nil }
+        if pending.placedAt == nil {
+            pending.placedAt = now
+            if pending.enter { enterOpenedHere(p, after: 0.35) }
+        }
+        openingHere = pending
+        return pending.spot
+    }
+
+    /// ⌘⏎ in the bar: into the window once it has popped in (or glided over).
+    private func enterOpenedHere(_ p: WindowProxy, after delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak p] in
+            MainActor.assumeIsolated {
+                guard let self, let p, self.proxies[p.windowID] === p, NSApp.isActive, self.activeProxy == nil else { return }
+                self.handoff(to: p)
             }
         }
     }
@@ -2758,9 +2899,12 @@ final class CanvasController {
     /// windows in the way, as near the middle as there's room (`NewWindowSpot`). Before their first
     /// frame, so they pop in at the new spot. Not the launch sync's, a layout's or the last run's (they
     /// have their places), and not on the strip (it lays them out).
+    /// Open Here…'s window goes to its spot instead, even one the last run had a place for.
     private func placeNewWindows(_ created: [WindowProxy], arriving: Bool) {
         guard arriving, restoring == nil, !Settings.stripMode else { return }
-        let arrivals = created.filter { $0.kind == .window && !rememberedClaimed.contains($0.windowID) }
+        var targets: [CGWindowID: CGPoint] = [:]
+        for p in created { targets[p.windowID] = openHereSpot(for: p) }
+        let arrivals = created.filter { $0.kind == .window && (!rememberedClaimed.contains($0.windowID) || targets[$0.windowID] != nil) }
         guard !arrivals.isEmpty else { return }
         let fresh = Set(arrivals.map(\.windowID))
         let settled = view.proxies.filter { $0.kind == .window && !fresh.contains($0.windowID) } + Array(away.values)
@@ -2769,7 +2913,8 @@ final class CanvasController {
         let gap = Tidy.Spacing.normal.points(gap: Settings.tileGap)
         var shown = CGRect.null
         for p in arrivals {
-            let spot = NewWindowSpot.spot(size: p.worldRect.size, avoiding: others, view: visible, gap: gap)
+            let spot = NewWindowSpot.spot(size: p.worldRect.size, avoiding: others, view: visible, gap: gap,
+                                          target: targets[p.windowID])
             if spot.origin != p.worldRect.origin {
                 NSLog("New window: \(p.appName) — \(p.title) placed, \(p.worldRect.origin) → \(spot.origin)")
                 p.worldRect.origin = spot.origin

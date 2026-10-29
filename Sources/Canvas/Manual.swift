@@ -53,6 +53,7 @@ enum Manual {
     static let whereThingsAre: [Row] = [
         Row(title: "The sun icon in the menu bar", how: "Sunlight on or off, the minimap, layouts; More for the rest"),
         Row(title: "Place windows", how: "⌃⌥ keys, the Window menu, a window’s right-click menu"),
+        Row(title: "Open an app at a spot", how: "double-click the empty canvas · right-click › Open Here…"),
         Row(title: "Save and restore layouts", how: "⌘S · ⌘1 – ⌘9"),
         Row(title: "Settings", how: "⌘, · More › Settings…"),
         Row(title: "These instructions", how: "⌘? · More › Instructions…"),

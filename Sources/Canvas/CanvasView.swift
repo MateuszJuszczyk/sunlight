@@ -67,6 +67,12 @@ final class CanvasView: NSView {
     var onPress: ((WindowProxy, CGPoint?) -> Void)?
     /// "Add Widgets…" from the context menu.
     var onAddWidgets: (() -> Void)?
+    /// Right-click › Open Here… or a double-click on empty canvas, at this world point.
+    var onOpenHere: ((CGPoint) -> Void)?
+    /// The spot Open Here… will open an app at, ringed while its bar is up (world point).
+    var openHereMark: CGPoint? {
+        didSet { showOpenHereMark(was: oldValue) }
+    }
     /// The camera moved, or a move was started, retargeted or dropped: what's in view may have changed.
     var onViewportChanged: (() -> Void)?
     /// The pointer (or the ⌘Tab switcher) is on a proxy, or on none: a chance to get ready for a click.
@@ -139,6 +145,8 @@ final class CanvasView: NSView {
     var onDropPicture: ((URL) -> Void)?
     /// A glow round the canvas's edge while a picture is dragged over it.
     private let dropGlow = CAShapeLayer()
+    /// The ring on `openHereMark`, in view coordinates: a fixed size whatever the zoom.
+    private let openHereRing = CAShapeLayer()
 
     private let worldLayer = CALayer()
     private let windowsLayer = CALayer()
@@ -415,6 +423,20 @@ final class CanvasView: NSView {
         dropGlow.zPosition = 2
         dropGlow.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull()]
         layer?.addSublayer(dropGlow)
+        let r: CGFloat = 14
+        openHereRing.bounds = CGRect(x: 0, y: 0, width: 2 * r, height: 2 * r)
+        openHereRing.path = CGPath(ellipseIn: openHereRing.bounds.insetBy(dx: 1.5, dy: 1.5), transform: nil)
+        openHereRing.fillColor = NSColor(white: 1, alpha: 0.18).cgColor
+        openHereRing.strokeColor = NSColor(white: 1, alpha: 0.9).cgColor
+        openHereRing.lineWidth = 2
+        openHereRing.shadowColor = NSColor.black.cgColor
+        openHereRing.shadowOpacity = 0.35
+        openHereRing.shadowRadius = 4
+        openHereRing.shadowOffset = .zero
+        openHereRing.zPosition = 2
+        openHereRing.opacity = 0
+        openHereRing.actions = ["position": NSNull()]
+        layer?.addSublayer(openHereRing)
         registerForDraggedTypes([.fileURL])
 
         guidesLayer.anchorPoint = .zero
@@ -735,9 +757,43 @@ final class CanvasView: NSView {
                 p.layoutChrome(zoom: camera.zoom)
             }
         }
+        if let mark = openHereMark { openHereRing.position = layerPoint(camera.toScreen(mark)) }
         CATransaction.commit()
         onCameraChanged?()
         onViewportChanged?()
+    }
+
+    /// A top-left view point in the (bottom-left) root layer's coordinates.
+    private func layerPoint(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: p.x, y: bounds.height - p.y)
+    }
+
+    /// The Open Here… ring fades in where the bar will open an app, gently pulsing, and fades out with it.
+    private func showOpenHereMark(was old: CGPoint?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let mark = openHereMark { openHereRing.position = layerPoint(camera.toScreen(mark)) }
+        CATransaction.commit()
+        let on = openHereMark != nil
+        guard on != (old != nil) else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = openHereRing.presentation()?.opacity ?? openHereRing.opacity
+        fade.toValue = on ? 1 : 0
+        fade.duration = on ? 0.15 : 0.25
+        openHereRing.add(fade, forKey: "opacity")
+        openHereRing.opacity = on ? 1 : 0
+        if on, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let pulse = CABasicAnimation(keyPath: "transform.scale")
+            pulse.fromValue = 1
+            pulse.toValue = 1.25
+            pulse.duration = 0.8
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            openHereRing.add(pulse, forKey: "pulse")
+        } else if !on {
+            openHereRing.removeAnimation(forKey: "pulse")
+        }
     }
 
     private func clampedZoom(_ z: CGFloat) -> CGFloat {
@@ -1721,7 +1777,15 @@ final class CanvasView: NSView {
         let p = proxy(at: worldPoint)
         if let p, p.kind == .window { return tileMenu(for: p) }
         let menu = NSMenu()
-        // Placement first, as in the Window menu; there's no window here to Move & Resize.
+        // Open Here… first: it's about this spot. Not on the strip, which lays every window out itself.
+        if p == nil, onOpenHere != nil, !Settings.stripMode {
+            let open = NSMenuItem(title: "Open Here…", action: #selector(openHere(_:)), keyEquivalent: "")
+            open.target = self
+            open.representedObject = NSValue(point: worldPoint)
+            menu.addItem(open)
+            menu.addItem(.separator())
+        }
+        // Placement next, as in the Window menu; there's no window here to Move & Resize.
         menuProxy = nil
         let placement = TileMenu.placementItems(target: self, actions: placementActions)
         for item in placement { menu.addItem(item) }
@@ -1915,6 +1979,11 @@ final class CanvasView: NSView {
         onAddWidgets?()
     }
 
+    @objc private func openHere(_ sender: NSMenuItem) {
+        guard let point = (sender.representedObject as? NSValue)?.pointValue else { return }
+        onOpenHere?(point)
+    }
+
     override func mouseDown(with event: NSEvent) {
         // ⌃-click is a right-click.
         if event.modifierFlags.contains(.control), let menu = menu(for: event) {
@@ -1996,6 +2065,9 @@ final class CanvasView: NSView {
                             start: screenPoint, startRect: p.worldRect,
                             members: members(of: p, includingAway: true).map { Member(proxy: $0, from: $0.worldRect) })
             Haptics.Player.shared.begin()
+        } else if event.clickCount == 2, onOpenHere != nil, !Settings.stripMode, !showsDesktop {
+            // A double-click on the empty canvas: Open Here…, as from its right-click menu.
+            onOpenHere?(worldPoint)
         } else {
             panning = true
             lastPointer = screenPoint

@@ -2,6 +2,7 @@
 
 ## 0.1.2
 
+- Open Here…: double-click or right-click the empty canvas, type an app's name and press ⏎, and its new window opens on the spot you clicked (⌘⏎ also goes into it). An app that's already running is asked for a new window; one that can't make one has its last-used window brought over instead.
 - The first-launch tutorial (trackpad) shows going into a window as a click or pinching in, side by side with an "or" between them, and ends with panning from anywhere with four fingers. Instructions > The Basics lists the four-finger pan too.
 - Apps whose window never shows on the canvas (a panel, an overlay, a tiny or invisible window) now stay in front when you switch to them from the canvas, instead of being sent back behind it.
 

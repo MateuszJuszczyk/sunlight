@@ -28,6 +28,12 @@ final class WindowProxy {
     var window: SCWindow?
     /// The owning app's; Notification Center's for a widget.
     var bundleID: String? { NSRunningApplication(processIdentifier: pid)?.bundleIdentifier }
+    /// Belongs to this app: its process if known, else its bundle ID (an app still launching).
+    func matches(bundleID: String?, pid: pid_t?) -> Bool {
+        if let pid, self.pid == pid { return true }
+        guard let bundleID else { return false }
+        return self.bundleID == bundleID
+    }
     var usesRealWindow = false {
         didSet {
             layer.isHidden = usesRealWindow

@@ -50,4 +50,30 @@ final class NewWindowSpotTests: XCTestCase {
         XCTAssertTrue(NewWindowSpot.isClear(CGRect(x: 132, y: 0, width: 100, height: 100), of: [a], gap: gap))
         XCTAssertFalse(NewWindowSpot.isClear(CGRect(x: 120, y: 0, width: 100, height: 100), of: [a], gap: gap))
     }
+
+    // MARK: Aimed at a spot (Open Here…)
+
+    private func spot(_ others: [CGRect], at target: CGPoint) -> CGRect {
+        NewWindowSpot.spot(size: size, avoiding: others, view: view, gap: gap, target: target)
+    }
+
+    func testAimedAtAFreeSpotItIsCentredThere() {
+        XCTAssertEqual(spot([], at: CGPoint(x: 300, y: 300)), CGRect(x: 100, y: 150, width: 400, height: 300))
+    }
+
+    func testAimedNearTheEdgeOfTheViewItIsPushedJustInside() {
+        XCTAssertEqual(spot([], at: CGPoint(x: 1950, y: 1150)), CGRect(x: 1600, y: 900, width: 400, height: 300))
+    }
+
+    func testAimedAtAWindowItGoesBesideItNearestTheSpot() {
+        let a = CGRect(x: 0, y: 0, width: 600, height: 600)
+        let r = spot([a], at: CGPoint(x: 300, y: 300))
+        XCTAssertTrue(NewWindowSpot.isClear(r, of: [a], gap: gap), "\(r)")
+        // Right below it, level with the spot: nearer the spot than right of it, and in view.
+        XCTAssertEqual(r, CGRect(x: 100, y: 632, width: 400, height: 300))
+    }
+
+    func testWithoutATargetItStillAimsAtTheMiddleOfTheView() {
+        XCTAssertEqual(NewWindowSpot.spot(size: size, avoiding: [], view: view, gap: gap, target: nil), centred)
+    }
 }
