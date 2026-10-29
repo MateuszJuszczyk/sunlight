@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Setup no longer covers System Settings or macOS's permission prompts: the setup window steps aside as you press Allow Accessibility, Allow Screen Recording or approve the background helper, and only stays above other apps while Sunlight is in front. The Uninstall window does the same.
+- Sunlight shows a Dock icon while setup is open, so you can click back to it from System Settings. The icon goes away when setup closes.
+
 ## 0.1.2
 
 - Open Here…: double-click or right-click the empty canvas, type an app's name and press ⏎, and its new window opens on the spot you clicked (⌘⏎ also goes into it). An app that's already running is asked for a new window; one that can't make one has its last-used window brought over instead.

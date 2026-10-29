@@ -171,10 +171,20 @@ final class UninstallController: NSWindowController, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 420),
                               styleMask: [.titled, .closable], backing: .buffered, defer: true)
         window.title = "Uninstall Sunlight"
-        window.level = .floating
+        // Over the canvas while Sunlight is active; at the normal level while another app is, since the
+        // walk-back sends the person to Terminal and System Settings, and a floating window of an
+        // inactive app would stay over them. Not hidden: its commands are what they're typing there.
+        window.level = .normal
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
+        let center = NotificationCenter.default
+        center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak window] _ in
+            MainActor.assumeIsolated { window?.level = .floating }
+        }
+        center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak window] _ in
+            MainActor.assumeIsolated { window?.level = .normal }
+        }
         showChecking()
         window.center()
     }
@@ -196,6 +206,7 @@ final class UninstallController: NSWindowController, NSWindowDelegate {
     }
 
     override func showWindow(_ sender: Any?) {
+        if NSApp.isActive { window?.level = .floating }
         super.showWindow(sender)
         window?.makeKeyAndOrderFront(sender)
         NSApp.activate()

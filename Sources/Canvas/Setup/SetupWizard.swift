@@ -15,9 +15,10 @@ import SwiftUI
 /// the person and resumes there at the next launch (`SetupRecord.setResume`); with the helper already
 /// on, the load page that follows starts the load by itself, so the way back needs nothing clicked.
 ///
-/// A floating window of an inactive app stays over other apps' windows, so while another app is in
-/// front (System Settings, for a step) the window fades away, and comes back, re-checked, when Sunlight
-/// does.
+/// A floating window of an inactive app stays over other apps' windows, so the window floats only while
+/// Sunlight is the active app (`float`), is never ordered over another app, and gets out of the way
+/// whenever setup sends the person to System Settings or a system prompt (`stepAside`): it comes back,
+/// re-checked, once the step is done or Sunlight is in front again.
 @MainActor
 final class SetupWizardController: NSWindowController, NSWindowDelegate {
     /// The load page's button: switch the canvas to live windows and load the add-on, asking if need be.
@@ -102,8 +103,9 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
 
         let window = SetupWizardWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.title = "Set Up Sunlight"
-        // Above the canvas, as Settings is; it steps aside while another app is in front (see `hideSoon`).
-        window.level = isTour ? NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow))) : .floating
+        // Above the canvas while Sunlight is active, as Settings is (`float`); at the normal level, and
+        // faded away, while another app is in front (`hideSoon`, `stepAside`).
+        window.level = isTour ? NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow))) : .normal
         window.collectionBehavior = [.stationary, .ignoresCycle, .fullScreenAuxiliary]
         window.isOpaque = true
         window.hasShadow = false
@@ -192,7 +194,13 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
     override func showWindow(_ sender: Any?) {
         guard let window else { return }
         if isShowing {
-            bringForward()
+            // The reopen `comeForward` asked LaunchServices for: the activation it brings raises the window
+            // (`returned`); asking again from here would only loop while macOS holds the activation back.
+            if let lastReopen, Date().timeIntervalSince(lastReopen) < 2 {
+                check()
+                return
+            }
+            if isTour { bringForward() } else { comeBack() }
             check()
             return
         }
@@ -201,6 +209,7 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
         window.backgroundColor = backdrop.backdrop?.groundColor ?? window.backgroundColor
         backdrop.isPaused = false
         backdrop.drawNow()
+        dockIcon(true)
         bringForward()
         if let resume = record.resume, !review { journal("Back in front after the relaunch, at \(resume.rawValue)") }
         fadeIn(duration: 0.45)
@@ -237,13 +246,15 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
     }
 
     /// Sunlight and the wizard to the front. With no Dock icon there's nothing to click back to, and
-    /// macOS often turns down an activation from the background, so: ask, show the window regardless,
-    /// and if the app still isn't active a moment later, have LaunchServices open our own bundle, which
-    /// activates the running copy (it arrives as a reopen, which brings the wizard forward).
+    /// macOS often turns down an activation from the background, so: ask, and if the app still isn't
+    /// active a moment later, have LaunchServices open our own bundle, which activates the running copy.
+    /// The window goes over other apps only once Sunlight is active (`returned`), never regardless:
+    /// ordered over an app that kept the front, it would cover System Settings, or a system prompt,
+    /// with nothing to make it step aside again.
     private func comeForward() {
         guard let window else { return }
         NSApp.activate()
-        window.orderFrontRegardless()
+        if NSApp.isActive { float(true) }
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
@@ -265,6 +276,7 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
         guard let window, isShowing else { return }
         isShowing = false
         stopWatching()
+        dockIcon(false)
         music.fadeOut()
         fadeOut(duration: 0.3) {
             window.orderOut(nil)
@@ -278,10 +290,24 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
         guard isShowing else { return }
         isShowing = false
         stopWatching()
+        dockIcon(false)
         music.fadeOut(duration: 0.2)
         backdrop.isPaused = true
         onVisibilityChanged?(false)
         onClose?()
+    }
+
+    /// A Dock icon while the window is up, and only then: something to click to get back to setup from
+    /// System Settings, where the menu bar icon is easy to miss. The click arrives as a reopen, which
+    /// brings the window forward (`showWindow`). Not in the tour, which stays out of sight.
+    private func dockIcon(_ shown: Bool) {
+        guard !isTour else { return }
+        let policy: NSApplication.ActivationPolicy = shown ? .regular : .accessory
+        guard NSApp.activationPolicy() != policy else { return }
+        let wasActive = NSApp.isActive
+        NSApp.setActivationPolicy(policy)
+        // Going back to accessory can deactivate the app: the canvas the window closed onto stays in front.
+        if !shown, wasActive { NSApp.activate() }
     }
 
     private func stopWatching() {
@@ -503,6 +529,7 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
             return SetupPageSpec(page: page, eyebrow: "Accessibility", headline: "Let Sunlight move your windows.",
                                  paragraphs: ["Accessibility is how Sunlight moves, raises and focuses other apps’ windows. Turn Sunlight on in the list that opens."],
                                  primary: action("primary", "Allow Accessibility…") { [weak self] in
+                                     self?.stepAside()
                                      Permissions.requestAccessibility()
                                      self?.openPrivacyPane("Privacy_Accessibility")
                                  },
@@ -523,6 +550,7 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
                                  paragraphs: ["Screen Recording is how the canvas shows your windows as pictures in preview mode, and your desktop widgets. macOS applies it to a fresh launch, so Sunlight relaunches itself once the switch is on and comes straight back here."],
                                  primary: action("primary", "Allow Screen Recording…", enabled: !relaunching) { [weak self] in
                                      self?.askedForScreenRecording = true
+                                     self?.stepAside()
                                      CGRequestScreenCaptureAccess()
                                      self?.openPrivacyPane("Privacy_ScreenCapture")
                                  },
@@ -809,6 +837,8 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
             return (state == .enabled || state == .needsApproval ? 0 : 1, "\(state)")
         } done: { [weak self] result in
             self?.journal("Helper: \(result.output)")
+            // Waiting on its switch: System Settings › Login Items is opening, out of the way for it.
+            if result.output == "\(LiveWindowsService.State.needsApproval)" { self?.stepAside() }
             if result.status != 0 { self?.notice("The background helper couldn’t be registered.", result.output) }
         }
     }
@@ -862,10 +892,38 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
 
     // MARK: Stepping aside
 
-    /// Another app came in front (System Settings, for a step): a floating window would stay over it,
-    /// so this one fades away, and comes back when Sunlight does. The short wait skips the moment a
-    /// permission prompt takes the front.
+    /// Floating over the canvas while Sunlight is active; at the normal level otherwise, so any other
+    /// app's window, System Settings and the system's prompts among them, is over it.
+    private func float(_ on: Bool) {
+        guard let window, !isTour else { return }
+        let level: NSWindow.Level = on ? .floating : .normal
+        if window.level != level { window.level = level }
+    }
+
+    /// A button that sends the person to System Settings, or puts up a system prompt: out of the way at
+    /// once, not only when another app takes the front, since a prompt can come up without taking it and
+    /// System Settings takes a moment to open. Back when the step is done (`comeBack`), or when Sunlight
+    /// is brought to the front again (`returned`).
+    private func stepAside() {
+        guard let window, isShowing, !review, !isTour else { return }
+        hideWork?.cancel()
+        hideWork = nil
+        steppedAside = true
+        journal("Stepping aside for System Settings")
+        float(false)
+        music.fadeOut()
+        fadeOut(duration: 0.25) {
+            guard self.steppedAside else { return }
+            window.orderOut(nil)
+            self.backdrop.isPaused = true
+        }
+    }
+
+    /// Another app came in front (System Settings, for a step): the window drops to the normal level
+    /// at once, under that app, then fades away, and comes back when Sunlight does. The short wait
+    /// skips the moment a permission prompt takes the front.
     private func hideSoon() {
+        float(false)
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
@@ -889,6 +947,7 @@ final class SetupWizardController: NSWindowController, NSWindowDelegate {
         hideWork = nil
         steppedAside = false
         guard isShowing, let window else { return }
+        float(true)
         backdrop.isPaused = false
         if !window.isVisible || window.alphaValue < 1 {
             backdrop.drawNow()
