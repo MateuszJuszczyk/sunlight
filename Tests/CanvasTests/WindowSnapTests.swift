@@ -115,6 +115,29 @@ final class WindowSnapTests: XCTestCase {
                        Camera(origin: CGPoint(x: 3000, y: 1167), zoom: 1))
     }
 
+    func testVerticalPanBetweenTilesSharingCameraPlacement() {
+        let size = CGSize(width: 1000, height: 1000)
+        let top = WindowSnap.Window(rect: CGRect(x: 0, y: 0, width: 1000, height: 500), spot: .zero)
+        let bottom = WindowSnap.Window(rect: CGRect(x: 0, y: 500, width: 1000, height: 500),
+                                       spot: CGPoint(x: 0, y: 500))
+        let windows = [top, bottom]
+        let camera = Camera(origin: .zero, zoom: 1)
+        XCTAssertEqual(WindowSnap.neighbour(from: camera, viewSize: size, windows: windows,
+                                            direction: CGVector(dx: 0, dy: 100), preferredIndex: 0)?.index, 1)
+        XCTAssertEqual(WindowSnap.neighbour(from: camera, viewSize: size, windows: windows,
+                                            direction: CGVector(dx: 0, dy: -100), preferredIndex: 1)?.index, 0)
+        XCTAssertNil(WindowSnap.neighbour(from: camera, viewSize: size, windows: windows,
+                                          direction: CGVector(dx: 0, dy: 100), preferredIndex: 1))
+    }
+
+    func testStalePreferredWindowDoesNotOverrideCurrentCamera() {
+        let right = WindowSnap.Window(rect: full.rect.offsetBy(dx: 900, dy: 0), spot: full.spot)
+        let below = WindowSnap.Window(rect: full.rect.offsetBy(dx: 900, dy: 600), spot: full.spot)
+        let atRight = Camera(origin: CGPoint(x: 3900, y: 467), zoom: 1)
+        XCTAssertEqual(WindowSnap.neighbour(from: atRight, viewSize: view, windows: [full, right, below],
+                                            direction: CGVector(dx: 0, dy: 100), preferredIndex: 0)?.index, 2)
+    }
+
     func testNudgeSpringIsQuickWithLittleOvershoot() {
         let s = Spring(x0: -1, v0: 0, response: WindowSnap.response, damping: WindowSnap.damping)
         var peak: CGFloat = -1

@@ -1,19 +1,40 @@
+# What this fork changes
+
+This fork of [Sunlight](https://github.com/spacefarm-digital/sunlight) aims to make the move from
+[Niri](https://github.com/YaLTeR/niri) on Linux to macOS feel more natural. It pairs Sunlight's live
+windows and infinite canvas with faster, Niri-inspired trackpad navigation:
+
+- **Swipe between neighbours.** A four-finger swipe pans freely while held; on release, the camera
+  springs toward a nearby window in the direction of travel. A new gesture interrupts the motion.
+- **Stronger window snapping.** Nearby smaller windows can be centred as well as large windows.
+- **Faster camera movement.** Four-finger pan sensitivity defaults to High (135%) and is configurable.
+- **Quick window entry.** A single overview click centres and enters a window; double-click enters at the
+  clicked position. The single-click action can be changed in Settings.
+
+The goal is a smooth, responsive window-management experience on macOS, not an exact Niri port or a
+claim of benchmarked performance. LiveWindows remains available; this fork does not replace it with
+screenshots. Strip Mode is still experimental, and real-device gesture and 120 Hz performance depend on
+the Mac and display.
+
+The downloads and Homebrew cask below are **upstream Sunlight**, not this fork. To get these changes,
+[build this fork from source](#build-from-source).
+
 <div align="center">
 
 <img src="docs/images/icon.png" width="128" height="128" alt="Sunlight's icon: a black sun on yellow">
 
 # Sunlight
 
-**Every window on your Mac, on one infinite canvas.**<br>
-Zoom out to see all of it. Click a window and you're in it, for real, at 1:1.
+**A fluid macOS window manager inspired by Niri's swipe-driven navigation.**<br>
+A Sunlight fork for people moving from Niri on Linux who want a familiar way to move between windows on a Mac.
 
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black?logo=apple)](#requirements)
 [![Apple silicon](https://img.shields.io/badge/Apple%20silicon-only-black)](#requirements)
 [![Beta](https://img.shields.io/badge/status-beta-f5c518)](#beta-heads-up)
 [![MIT licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
-[**Download for Mac**](https://github.com/spacefarm-digital/sunlight-releases/releases/latest/download/Sunlight.dmg)
-&nbsp;·&nbsp; [Homebrew](#install)
+[**Build this fork**](#build-from-source)
+&nbsp;·&nbsp; [Upstream downloads](#install-upstream-sunlight)
 &nbsp;·&nbsp; [sunlight.software](https://sunlight.software)
 &nbsp;·&nbsp; [How it works](docs/how-it-works.md)
 
@@ -104,7 +125,9 @@ off. The **Set Up Sunlight** wizard walks you through it one screen at a time, R
 [LiveWindows/README.md](LiveWindows/README.md) for exactly what the add-on does and why before you
 flip anything.
 
-## Install
+## Install upstream Sunlight
+
+The following DMG and Homebrew cask install the original project, **not this fork**.
 
 **Download** the DMG and drag Sunlight to Applications:
 
@@ -148,6 +171,16 @@ on your Mac.
 
 ## Build from source
 
+Clone the fork and select the feature branch:
+
+```sh
+git clone https://github.com/MateuszJuszczyk/sunlight.git
+cd sunlight
+git switch improve-camera-navigation
+```
+
+Build and run it:
+
 ```sh
 make run
 ```
@@ -155,6 +188,8 @@ make run
 Needs macOS 15 or later and Xcode 16 or later (the command-line tools are enough). `swift test` runs the
 tests. The build signs with the first Developer ID Application or Apple Development identity in your
 keychain, or ad-hoc with neither; [INSTALL.md](INSTALL.md#building-from-source) says what each one changes.
+The fork retains upstream's Sparkle update feed. Accepting an upstream update may replace the fork's
+changes with the upstream version.
 How the canvas is drawn, the handoff, the add-on and the known limits are all in
 [docs/how-it-works.md](docs/how-it-works.md).
 

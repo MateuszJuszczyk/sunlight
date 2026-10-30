@@ -306,6 +306,7 @@ final class CanvasController {
         window.title = "Sunlight"
 
         view.onHandoff = { [weak self] proxy in self?.handoff(to: proxy) }
+        view.onCenteredClick = { [weak self] proxy, double in self?.handoff(to: proxy, click: !double) }
         view.onDesktopDismissed = { [weak self] in self?.endShowDesktop(flyBack: false) }
         view.desktopFloor = desktopFloor
         view.onFloorClick = { [weak self] icon, modifiers, released in self?.floorClick(icon, modifiers: modifiers, released: released) }
@@ -316,7 +317,7 @@ final class CanvasController {
         view.onSpring = { [weak self] proxy, point in self?.springInto(proxy, around: point) }
         view.onFileDragEnded = { [weak self] in self?.fileDragEnded() }
         view.onEnter = { [weak self] proxy, point in self?.handoff(to: proxy, placement: .inPlace(around: point)) }
-        view.onClickEnter = { [weak self] proxy, point, offset in self?.handoff(to: proxy, placement: .clicked(at: point, offset: offset)) }
+        view.onClickEnter = { [weak self] proxy, point, offset, double in self?.handoff(to: proxy, placement: .clicked(at: point, offset: offset), click: !double) }
         view.onUse = { [weak self] proxy, point, press in self?.use(proxy, around: point, press: press) }
         view.onUseFollow = { [weak self] event in self?.followPress(event) }
         view.onUseScroll = { [weak self] proxy, point, scroll in self?.useScroll(proxy, around: point, scroll: scroll) }
@@ -3965,15 +3966,15 @@ final class CanvasController {
         case clicked(at: CGPoint, offset: CGPoint)
     }
 
-    /// A click's way in lasts at least this long, so a second click (a double-click) still lands on the
-    /// canvas, which re-aims it to the middle, and never on the real window as a click of its own.
+    /// Keep the canvas in front during the double-click interval so a second click can redirect
+    /// the entrance instead of reaching the real window.
     private static var clickEntryDuration: CFTimeInterval {
-        min(max(NSEvent.doubleClickInterval, CanvasView.cameraDuration), 0.6)
+        max(NSEvent.doubleClickInterval, CanvasView.cameraDuration)
     }
 
     /// `spatial`: travel there across the canvas (the switcher's pan-and-zoom flight) rather than the
     /// straight zoom-in a click or ⏎ gets.
-    func handoff(to p: WindowProxy, placement: Placement = .centered, spatial: Bool = false) {
+    func handoff(to p: WindowProxy, placement: Placement = .centered, spatial: Bool = false, click: Bool = false) {
         guard !handingOff, p.kind == .window else { return }
         // Straight after the canvas came back (a quick ⌘Tab tap, ⌘ up before the canvas was), its first
         // listing may not have landed, and none lands during a handoff: the live windows were never
@@ -4050,7 +4051,7 @@ final class CanvasController {
             let destination = toGlobal(origin)
             // At 1:1, in place, there's nowhere to fly: a few frames and it's in use.
             var duration = view.camera.isClose(to: target) ? CanvasController.stayingDuration : CanvasView.cameraDuration
-            if clicked { duration = max(duration, CanvasController.clickEntryDuration) }
+            if click { duration = max(duration, CanvasController.clickEntryDuration) }
             shadowFlight = (p.windowID, CACurrentMediaTime(), duration)
             let complete: () -> Void = { [weak self] in
                 guard let self, self.handoffTarget === p, self.renderer == .realWindows else { return }
@@ -4128,7 +4129,7 @@ final class CanvasController {
             view.fly(to: aligned, completion: complete)
         } else {
             var duration = move == nil && view.camera.isClose(to: aligned) ? CanvasController.stayingDuration : CanvasView.cameraDuration
-            if clicked { duration = max(duration, CanvasController.clickEntryDuration) }
+            if click { duration = max(duration, CanvasController.clickEntryDuration) }
             view.animateCamera(to: aligned, duration: duration, moving: move.map { [(p, $0)] } ?? [], completion: complete)
             // One more full frame timed to land just before the seam.
             DispatchQueue.main.asyncAfter(deadline: .now() + max(0, duration - 0.09)) { [weak self, weak p] in
@@ -4165,8 +4166,9 @@ final class CanvasController {
             return WindowSnap.Window(rect: p.worldRect, spot: origin)
         }
         let strength: WindowSnap.Strength = Settings.windowSnapStrength == .normal ? .normal : .strong
+        let preferred = lastActiveProxy.flatMap { active in windows.firstIndex { $0 === active } }
         let neighbour = pan.flatMap { WindowSnap.neighbour(from: $0.0, viewSize: view.bounds.size,
-                                                           windows: spots, direction: $0.1) }
+                                                           windows: spots, direction: $0.1, preferredIndex: preferred) }
         guard let hit = neighbour ?? WindowSnap.target(camera: view.camera, viewSize: view.bounds.size,
                                                        visible: visible, windows: spots, strength: strength) else {
             return false

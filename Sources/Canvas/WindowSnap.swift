@@ -83,7 +83,7 @@ enum WindowSnap {
     /// Step from the window nearest the gesture's starting camera to a neighbour in the camera's
     /// travel direction. Bounds are in world points, so zooming out cannot capture distant windows.
     static func neighbour(from start: Camera, viewSize: CGSize, windows: [Window],
-                          direction: CGVector) -> (index: Int, camera: Camera)? {
+                          direction: CGVector, preferredIndex: Int? = nil) -> (index: Int, camera: Camera)? {
         guard viewSize.width > 0, viewSize.height > 0,
               hypot(direction.dx, direction.dy) >= 18 else { return nil }
         let center = start.center(viewSize: viewSize)
@@ -101,15 +101,27 @@ enum WindowSnap {
             if let a = anchor, candidate >= (a.score, a.x, a.y) { continue }
             anchor = (i, candidate.0, p.x, p.y)
         }
+        // Tiled windows can share an identical camera target. When returning from a real window,
+        // retain that window as the anchor rather than picking another tile by array order.
+        if let i = preferredIndex, windows.indices.contains(i) {
+            let w = windows[i]
+            let target = Camera(origin: CGPoint(x: w.rect.minX - w.spot.x, y: w.rect.minY - w.spot.y), zoom: 1)
+            if w.rect.width > 0, w.rect.height > 0, start.isClose(to: target) {
+                let p = targetCenter(w)
+                anchor = (i, 0, p.x, p.y)
+            }
+        }
         guard let anchor else { return nil }
+        let anchorRect = windows[anchor.index].rect
         let horizontal = abs(direction.dx) >= abs(direction.dy)
         let sign: CGFloat = (horizontal ? direction.dx : direction.dy) >= 0 ? 1 : -1
         let alongLimit = (horizontal ? viewSize.width : viewSize.height) * 1.5
         let acrossLimit = (horizontal ? viewSize.height : viewSize.width) * 0.75
         var best: (index: Int, score: CGFloat, x: CGFloat, y: CGFloat)?
         for (i, w) in windows.enumerated() where i != anchor.index && w.rect.width > 0 && w.rect.height > 0 {
-            let p = targetCenter(w)
-            let dx = p.x - anchor.x, dy = p.y - anchor.y
+            let p = CGPoint(x: w.rect.midX, y: w.rect.midY)
+            // Geometry, not camera destinations: tiles in the same area can share one destination.
+            let dx = w.rect.midX - anchorRect.midX, dy = w.rect.midY - anchorRect.midY
             let along = (horizontal ? dx : dy) * sign
             let across = abs(horizontal ? dy : dx)
             guard along > 1, along <= alongLimit, across <= acrossLimit else { continue }
