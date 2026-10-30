@@ -1,3 +1,24 @@
+# What this fork changes
+
+This fork of [Sunlight](https://github.com/spacefarm-digital/sunlight) aims to make the move from
+[Niri](https://github.com/YaLTeR/niri) on Linux to macOS feel more natural. It pairs Sunlight's live
+windows and infinite canvas with faster, Niri-inspired trackpad navigation:
+
+- **Swipe between neighbours.** A four-finger swipe pans freely while held; on release, the camera
+  springs toward a nearby window in the direction of travel. A new gesture interrupts the motion.
+- **Stronger window snapping.** Nearby smaller windows can be centred as well as large windows.
+- **Faster camera movement.** Four-finger pan sensitivity defaults to High (135%) and is configurable.
+- **Quick window entry.** A single overview click centres and enters a window; double-click enters at the
+  clicked position. The single-click action can be changed in Settings.
+
+The goal is a smooth, responsive window-management experience on macOS, not an exact Niri port or a
+claim of benchmarked performance. LiveWindows remains available; this fork does not replace it with
+screenshots. Strip Mode is still experimental, and real-device gesture and 120 Hz performance depend on
+the Mac and display.
+
+The downloads and Homebrew cask below are **upstream Sunlight**, not this fork. To get these changes,
+[build this fork from source](#build-from-source).
+
 <div align="center">
 
 <img src="docs/images/icon.png" width="128" height="128" alt="Sunlight's icon: a black sun on yellow">
@@ -24,27 +45,6 @@ A Sunlight fork for people moving from Niri on Linux who want a familiar way to 
 </p>
 
 ---
-
-## Why this fork?
-
-This fork of [Sunlight](https://github.com/spacefarm-digital/sunlight) aims to make the move from
-[Niri](https://github.com/YaLTeR/niri) on Linux to macOS feel more natural. It pairs Sunlight's live
-windows and infinite canvas with faster, Niri-inspired trackpad navigation:
-
-- **Swipe between neighbours.** A four-finger swipe pans freely while held; on release, the camera
-  springs toward a nearby window in the direction of travel. A new gesture interrupts the motion.
-- **Stronger window snapping.** Nearby smaller windows can be centred as well as large windows.
-- **Faster camera movement.** Four-finger pan sensitivity defaults to High (135%) and is configurable.
-- **Quick window entry.** A single overview click centres and enters a window; double-click enters at the
-  clicked position. The single-click action can be changed in Settings.
-
-The goal is a smooth, responsive window-management experience on macOS, not an exact Niri port or a
-claim of benchmarked performance. LiveWindows remains available; this fork does not replace it with
-screenshots. Strip Mode is still experimental, and real-device gesture and 120 Hz performance depend on
-the Mac and display.
-
-The downloads and Homebrew cask below are **upstream Sunlight**, not this fork. To get these changes,
-[build this fork from source](#build-from-source).
 
 ## What is this?
 
