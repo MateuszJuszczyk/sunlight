@@ -84,6 +84,37 @@ final class WindowSnapTests: XCTestCase {
         XCTAssertEqual(reversed?.camera, aligned)
     }
 
+    func testPanSelectsNeighbourInCameraTravelDirection() {
+        let left = WindowSnap.Window(rect: full.rect.offsetBy(dx: -900, dy: 0), spot: full.spot)
+        let right = WindowSnap.Window(rect: full.rect.offsetBy(dx: 900, dy: 0), spot: full.spot)
+        let fartherRight = WindowSnap.Window(rect: full.rect.offsetBy(dx: 1800, dy: 0), spot: full.spot)
+        let windows = [fartherRight, left, full, right]
+        XCTAssertEqual(WindowSnap.neighbour(from: aligned, viewSize: view, windows: windows,
+                                            direction: CGVector(dx: 100, dy: 0))?.index, 3)
+        XCTAssertEqual(WindowSnap.neighbour(from: aligned, viewSize: view, windows: windows,
+                                            direction: CGVector(dx: -100, dy: 0))?.index, 1)
+    }
+
+    func testPanDoesNotSelectDistantOrWrongDirectionWindow() {
+        let far = WindowSnap.Window(rect: full.rect.offsetBy(dx: 2500, dy: 0), spot: full.spot)
+        let left = WindowSnap.Window(rect: full.rect.offsetBy(dx: -500, dy: 0), spot: full.spot)
+        XCTAssertNil(WindowSnap.neighbour(from: aligned, viewSize: view, windows: [full, far, left],
+                                          direction: CGVector(dx: 100, dy: 0)))
+        XCTAssertNil(WindowSnap.neighbour(from: aligned, viewSize: view, windows: [full, left],
+                                          direction: CGVector(dx: -5, dy: 0)))
+    }
+
+    func testPanSelectsVerticalNeighbourWithoutReordering() {
+        let below = WindowSnap.Window(rect: full.rect.offsetBy(dx: 0, dy: 700), spot: full.spot)
+        let right = WindowSnap.Window(rect: full.rect.offsetBy(dx: 700, dy: 0), spot: full.spot)
+        let windows = [right, below, full]
+        XCTAssertEqual(WindowSnap.neighbour(from: aligned, viewSize: view, windows: windows,
+                                            direction: CGVector(dx: 10, dy: 100))?.index, 1)
+        XCTAssertEqual(WindowSnap.neighbour(from: aligned, viewSize: view, windows: Array(windows.reversed()),
+                                            direction: CGVector(dx: 10, dy: 100))?.camera,
+                       Camera(origin: CGPoint(x: 3000, y: 1167), zoom: 1))
+    }
+
     func testNudgeSpringIsQuickWithLittleOvershoot() {
         let s = Spring(x0: -1, v0: 0, response: WindowSnap.response, damping: WindowSnap.damping)
         var peak: CGFloat = -1

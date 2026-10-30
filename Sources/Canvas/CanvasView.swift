@@ -90,6 +90,8 @@ final class CanvasView: NSView {
     /// The camera came to rest after the user moved it (a pan, a pinch, a scroll, the minimap), the
     /// fingers off and any coast run out: true when the controller took it from there (`WindowSnap`).
     var onSettle: (() -> Bool)?
+    /// Four-finger release can snap immediately, before starting an inertial coast.
+    var onFourFingerPanEnd: ((Camera, CGVector) -> Bool)?
     /// A flight's spring each frame: 0 where the move began, 1 where it ends (a little past 1 at the
     /// overshoot), and exactly 1 once it settles, is dropped, or had no distance to go. The ⌘Tab strip
     /// moves on this, so it and the camera are one motion.
@@ -352,6 +354,7 @@ final class CanvasView: NSView {
     private var zoomCoast: Motion.ZoomCoast?
     /// The four-finger drag's travel so far and its speed, for the coast when it ends.
     private var panTravel = CGPoint.zero
+    private var panStartCamera: Camera?
     private var panVelocity = Magnetism.Velocity()
     /// The pinch's log-zoom so far and its speed, for the tail when it ends.
     private var pinchLog: CGFloat = 0
@@ -820,6 +823,7 @@ final class CanvasView: NSView {
     /// Four-finger drag (`TrackpadPan`): `travel` is in trackpad widths, and the content follows it on
     /// the next frame.
     func trackpadPan(by travel: CGVector) {
+        if !fourFingersHeld { panStartCamera = camera }
         beginInput()
         settleAfterFourFingerPan = true
         let k = bounds.width * CanvasView.trackpadPanGain
@@ -832,15 +836,25 @@ final class CanvasView: NSView {
         pending.addPan(CGVector(dx: delta.dx * sensitivity, dy: delta.dy * sensitivity))
     }
 
-    /// The four fingers lifted: the pan coasts on from the speed it had, slowing as a scroll does
-    /// (see `Motion.PanCoast`). Any input, click or key stops it. Nothing with pan inertia off in
-    /// Settings, or under Reduce Motion.
+    /// On release, try an immediate snap before starting the usual inertial coast. Without a target,
+    /// or with automatic centring disabled, preserve the user's existing inertia preference.
     func trackpadPanEnded() {
         let now = CACurrentMediaTime()
+        let startCamera = panStartCamera
+        let travel = CGVector(dx: -panTravel.x, dy: -panTravel.y)
+        panStartCamera = nil
         let v = panVelocity.release(at: now)
         panTravel = .zero
         panVelocity = Magnetism.Velocity()
         fingersLifted()
+        if Settings.autoCenterAfterFourFingerPan, settleWhenStill, settleAfterFourFingerPan, let startCamera {
+            flushInput()
+            if onFourFingerPanEnd?(startCamera, travel) == true {
+                settleWhenStill = false
+                settleAfterFourFingerPan = false
+                return
+            }
+        }
         guard Settings.panInertia, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         coast = Motion.PanCoast(velocity: v, at: now)
         if coast != nil { startDisplayLink() }
@@ -848,6 +862,7 @@ final class CanvasView: NSView {
 
     /// The four-finger drag turned out to be a flick: the pan stops where it is, no coast.
     func trackpadPanCancelled() {
+        panStartCamera = nil
         panTravel = .zero
         panVelocity = Magnetism.Velocity()
         fourFingersHeld = false

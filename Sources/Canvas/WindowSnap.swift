@@ -34,12 +34,16 @@ enum WindowSnap {
     /// rather than the order in which windows happened to be listed.
     static func target(camera: Camera, viewSize: CGSize, visible: CGRect, windows: [Window],
                        strength: Strength = .normal) -> (index: Int, camera: Camera)? {
-        let reach = strength == .strong ? strongReach : normalReach
+        let reach: CGFloat
+        switch strength {
+        case .normal: reach = normalReach
+        case .strong: reach = strongReach
+        }
         let rx = max(minReach, viewSize.width * reach), ry = max(minReach, viewSize.height * reach)
         var best: (index: Int, camera: Camera, off: CGFloat, rect: CGRect, spot: CGPoint)?
         for (i, w) in windows.enumerated() {
             guard w.rect.width > 0, w.rect.height > 0,
-                  strength == .strong || isScreenSized(w.rect.size, visible: visible.size) else { continue }
+                  strength != .normal || isScreenSized(w.rect.size, visible: visible.size) else { continue }
             let now = camera.toScreen(w.rect)
             let intersection = now.intersection(visible)
             guard !intersection.isNull, intersection.width > 0, intersection.height > 0 else { continue }
@@ -74,5 +78,47 @@ enum WindowSnap {
             best = (i, Camera(origin: CGPoint(x: w.rect.minX - w.spot.x, y: w.rect.minY - w.spot.y), zoom: 1), off, w.rect, w.spot)
         }
         return best.map { ($0.index, $0.camera) }
+    }
+
+    /// Step from the window nearest the gesture's starting camera to a neighbour in the camera's
+    /// travel direction. Bounds are in world points, so zooming out cannot capture distant windows.
+    static func neighbour(from start: Camera, viewSize: CGSize, windows: [Window],
+                          direction: CGVector) -> (index: Int, camera: Camera)? {
+        guard viewSize.width > 0, viewSize.height > 0,
+              hypot(direction.dx, direction.dy) >= 18 else { return nil }
+        let center = start.center(viewSize: viewSize)
+        func targetCenter(_ w: Window) -> CGPoint {
+            CGPoint(x: w.rect.minX - w.spot.x + viewSize.width / 2,
+                    y: w.rect.minY - w.spot.y + viewSize.height / 2)
+        }
+        var anchor: (index: Int, score: CGFloat, x: CGFloat, y: CGFloat)?
+        for (i, w) in windows.enumerated() where w.rect.width > 0 && w.rect.height > 0 {
+            let p = targetCenter(w)
+            let dx = abs(p.x - center.x) / viewSize.width
+            let dy = abs(p.y - center.y) / viewSize.height
+            guard dx <= 0.75, dy <= 0.75 else { continue }
+            let candidate = (dx * dx + dy * dy, p.x, p.y)
+            if let a = anchor, candidate >= (a.score, a.x, a.y) { continue }
+            anchor = (i, candidate.0, p.x, p.y)
+        }
+        guard let anchor else { return nil }
+        let horizontal = abs(direction.dx) >= abs(direction.dy)
+        let sign: CGFloat = (horizontal ? direction.dx : direction.dy) >= 0 ? 1 : -1
+        let alongLimit = (horizontal ? viewSize.width : viewSize.height) * 1.5
+        let acrossLimit = (horizontal ? viewSize.height : viewSize.width) * 0.75
+        var best: (index: Int, score: CGFloat, x: CGFloat, y: CGFloat)?
+        for (i, w) in windows.enumerated() where i != anchor.index && w.rect.width > 0 && w.rect.height > 0 {
+            let p = targetCenter(w)
+            let dx = p.x - anchor.x, dy = p.y - anchor.y
+            let along = (horizontal ? dx : dy) * sign
+            let across = abs(horizontal ? dy : dx)
+            guard along > 1, along <= alongLimit, across <= acrossLimit else { continue }
+            let candidate = (along / alongLimit + across / acrossLimit, p.x, p.y)
+            if let b = best, candidate >= (b.score, b.x, b.y) { continue }
+            best = (i, candidate.0, p.x, p.y)
+        }
+        guard let best else { return nil }
+        let w = windows[best.index]
+        return (best.index, Camera(origin: CGPoint(x: w.rect.minX - w.spot.x, y: w.rect.minY - w.spot.y), zoom: 1))
     }
 }

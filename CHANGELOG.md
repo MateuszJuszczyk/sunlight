@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Four-finger panning defaults to higher sensitivity, with selectable sensitivity and optional automatic window centring after the gesture settles.
+- Four-finger panning defaults to higher sensitivity. With automatic centring on, releasing a swipe moves directly to a nearby window in the direction of camera travel; otherwise the normal pan inertia remains available.
 - Strong window snapping can centre nearby smaller windows; Normal retains the original full-screen snap.
 - Overview clicks centre and enter windows by default; double-click enters at the clicked position. Settings can reverse these actions.
 
