@@ -37,15 +37,18 @@ final class CanvasView: NSView {
     /// minimap, which outlines them dashed. The controller owns the list (`CanvasController.away`).
     var away: [WindowProxy] = []
 
-    /// A double-click or ⏎: bring the window to the middle of the screen and enter it.
+    /// Bring the window to the middle of the screen and enter it.
     var onHandoff: ((WindowProxy) -> Void)?
     /// Zoomed in or out, a click on a window that didn't become a drag: enter it at 1:1 around the clicked
     /// spot (`at`: where it was pressed, view coordinates; `offset`: where in the window, world units).
     var onClickEnter: ((_ proxy: WindowProxy, _ at: CGPoint, _ offset: CGPoint) -> Void)?
-    /// The window a click just started entering in place: a second click on its way in (a double-click)
-    /// brings it to the middle instead. The way in lasts at least the double-click interval
-    /// (`CanvasController.handoff`), so the canvas is still here to take that click.
-    private weak var clickEntering: WindowProxy?
+    /// A window click waits for the system double-click interval before it can hand off.
+    private struct PendingWindowClick {
+        let id: UUID
+        let proxy: WindowProxy
+    }
+    private var pendingWindowClick: PendingWindowClick?
+    private weak var doubleClickProxy: WindowProxy?
     /// A press on a window at 1:1: enter it where it is and pass the press on to the real window, so it's
     /// used straight away, as on the desktop. `press` is the mouse-down.
     var onUse: ((_ proxy: WindowProxy, _ around: CGPoint, _ press: NSEvent) -> Void)?
@@ -356,6 +359,8 @@ final class CanvasView: NSView {
     /// The user moved the camera and it hasn't come to rest since: `onSettle` is asked once it has. A move
     /// of the app's own (a handoff, a fit, the switcher) clears it.
     private var settleWhenStill = false
+    /// The latest camera input was a four-finger pan, including its inertial tail.
+    private var settleAfterFourFingerPan = false
     /// Fingers still on the trackpad: a scroll, a pinch or a four-finger drag that hasn't ended. A pause
     /// with them down isn't a rest.
     private var scrollHeld = false
@@ -816,13 +821,15 @@ final class CanvasView: NSView {
     /// the next frame.
     func trackpadPan(by travel: CGVector) {
         beginInput()
+        settleAfterFourFingerPan = true
         let k = bounds.width * CanvasView.trackpadPanGain
         let delta = CGVector(dx: travel.dx * k, dy: travel.dy * k)
         fourFingersHeld = true
         panTravel.x += delta.dx
         panTravel.y += delta.dy
         panVelocity.add(panTravel, at: CACurrentMediaTime())
-        pending.addPan(delta)
+        let sensitivity = Settings.cameraPanSensitivity.multiplier
+        pending.addPan(CGVector(dx: delta.dx * sensitivity, dy: delta.dy * sensitivity))
     }
 
     /// The four fingers lifted: the pan coasts on from the speed it had, slowing as a scroll does
@@ -844,6 +851,8 @@ final class CanvasView: NSView {
         panTravel = .zero
         panVelocity = Magnetism.Velocity()
         fourFingersHeld = false
+        settleAfterFourFingerPan = false
+        settleWhenStill = false
     }
 
     /// A gesture's fingers came off: the camera may be at rest already, with the link long stopped, so
@@ -857,6 +866,7 @@ final class CanvasView: NSView {
     /// The user moved the camera without input events of the view's own (the minimap): ask `onSettle`
     /// once it's at rest.
     func noteUserMove() {
+        settleAfterFourFingerPan = false
         settleWhenStill = true
         startDisplayLink()
     }
@@ -867,13 +877,18 @@ final class CanvasView: NSView {
               zoomCoast == nil, now - lastInput > CanvasView.inputLinger, !scrollHeld, !pinchHeld,
               !fourFingersHeld, !panning, dragging == nil, resizing == nil else { return }
         settleWhenStill = false
-        _ = onSettle?()
+        if !settleAfterFourFingerPan || Settings.autoCenterAfterFourFingerPan {
+            _ = onSettle?()
+        }
+        settleAfterFourFingerPan = false
     }
 
     /// An input event is about to change the camera: whatever motion was running stops, and the
     /// change goes into `pending` for the next display frame. The link is kept rather than stopped
     /// and restarted between the events of one gesture.
     private func beginInput() {
+        pendingWindowClick = nil
+        settleAfterFourFingerPan = false
         lastInput = CACurrentMediaTime()
         settleWhenStill = true
         interruptMotion()
@@ -1773,6 +1788,7 @@ final class CanvasView: NSView {
     /// empty canvas the background. Over a window: Move & Resize, Minimize and Hide; its other menus
     /// are the real window's, once entered.
     override func menu(for event: NSEvent) -> NSMenu? {
+        pendingWindowClick = nil
         let worldPoint = camera.toWorld(topLeftPoint(event))
         let ground = floorHit(at: worldPoint)
         if let icon = ground.icon {
@@ -1990,7 +2006,30 @@ final class CanvasView: NSView {
         onOpenHere?(point)
     }
 
+    private func performWindowClick(_ proxy: WindowProxy, at point: CGPoint, offset: CGPoint, double: Bool) {
+        let center = (Settings.singleClickBehavior == .centerWindow) != double
+        if center {
+            onHandoff?(proxy)
+        } else {
+            onClickEnter?(proxy, point, offset)
+        }
+    }
+
+    private func deferWindowClick(_ proxy: WindowProxy, at point: CGPoint, offset: CGPoint) {
+        let id = UUID()
+        pendingWindowClick = PendingWindowClick(id: id, proxy: proxy)
+        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval) { [weak self, weak proxy] in
+            guard let self, let proxy, self.pendingWindowClick?.id == id else { return }
+            self.pendingWindowClick = nil
+            guard self.proxies.contains(where: { $0 === proxy }), self.window?.isVisible == true else { return }
+            self.performWindowClick(proxy, at: point, offset: offset, double: false)
+        }
+    }
+
     override func mouseDown(with event: NSEvent) {
+        let previousClick = pendingWindowClick
+        pendingWindowClick = nil
+        doubleClickProxy = nil
         // ⌃-click is a right-click.
         if event.modifierFlags.contains(.control), let menu = menu(for: event) {
             NSMenu.popUpContextMenu(menu, with: event, for: self)
@@ -2003,15 +2042,6 @@ final class CanvasView: NSView {
         cancelAnimation()
         settleMagnet(now: true)   // the last drag's pushed windows go straight to their places
         floorPress = nil
-        // The second click of a double-click, the first one's way in just stopped above: the same window,
-        // to the middle now, from wherever the camera got to.
-        let entering = clickEntering
-        clickEntering = nil
-        if event.clickCount >= 2, let p = entering {
-            dragging = nil
-            onHandoff?(p)
-            return
-        }
         let ground = floorHit(at: worldPoint)
         floorFocused = ground.icon != nil
         if let icon = ground.icon {
@@ -2058,12 +2088,8 @@ final class CanvasView: NSView {
                 onUse?(p, screenPoint, event)
                 return
             }
-            // Zoomed in or out, a double-click brings the window to the middle and enters it (the second
-            // click usually lands while the first is on its way in, above).
-            if event.clickCount >= 2, p.kind == .window {
-                dragging = nil
-                onHandoff?(p)
-                return
+            if event.clickCount >= 2, p.kind == .window, previousClick?.proxy === p {
+                doubleClickProxy = p
             }
             // The press brings it to the front, with its group; a drag moves it.
             raise(p)
@@ -2255,12 +2281,14 @@ final class CanvasView: NSView {
                 let r = d.proxy.worldRect
                 onPress?(d.proxy, CGPoint(x: r.minX + d.grabOffset.x, y: r.minY + d.grabOffset.y))
             case .window:
-                // Brought to the front on the press. Zoomed in or out, the click enters it at 1:1 right
-                // where it is, around the clicked spot; a double-click brings it to the middle instead.
-                clickEntering = d.proxy
-                onClickEnter?(d.proxy, d.start, d.grabOffset)
+                if doubleClickProxy === d.proxy {
+                    performWindowClick(d.proxy, at: d.start, offset: d.grabOffset, double: true)
+                } else {
+                    deferWindowClick(d.proxy, at: d.start, offset: d.grabOffset)
+                }
             }
         }
+        doubleClickProxy = nil
         dragging = nil
         if panning {
             panning = false
@@ -2362,6 +2390,7 @@ final class CanvasView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        pendingWindowClick = nil
         if holdsKey?(event) == true { return }
         // The desktop's keys, while its files have the canvas's attention and something's selected.
         if floorFocused, let command = DesktopFiles.command(keyCode: Int(event.keyCode), modifiers: event.modifierFlags),

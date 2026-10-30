@@ -4139,9 +4139,8 @@ final class CanvasController {
         return origin
     }
 
-    /// The camera came to rest after the user moved it: nearly on a screen-sized window (near 1:1, its
-    /// edges nearly where they'd be on screen), it nudges the rest of the way on a quick spring and
-    /// enters it in the middle, as a double-click would (`WindowSnap`). True when it did.
+    /// At rest near a window's 1:1 placement, nudge onto it and enter it. Strong also includes
+    /// smaller windows; the same candidate selection works on the free canvas and in strip mode.
     private func snapToWindow() -> Bool {
         guard Settings.snapToWindows, !handingOff, NSApp.isActive, activeProxy == nil, switcher == nil,
               !isShowingDesktop, addingWidgets == nil, !isSetupShowing else { return false }
@@ -4156,7 +4155,9 @@ final class CanvasController {
             origin = CGPoint(x: (origin.x * scale).rounded() / scale, y: max(visible.minY, (origin.y * scale).rounded() / scale))
             return WindowSnap.Window(rect: p.worldRect, spot: origin)
         }
-        guard let hit = WindowSnap.target(camera: view.camera, viewSize: view.bounds.size, visible: visible, windows: spots) else {
+        let strength: WindowSnap.Strength = Settings.windowSnapStrength == .normal ? .normal : .strong
+        guard let hit = WindowSnap.target(camera: view.camera, viewSize: view.bounds.size, visible: visible,
+                                          windows: spots, strength: strength) else {
             return false
         }
         let p = windows[hit.index]

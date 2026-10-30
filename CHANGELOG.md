@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Four-finger panning defaults to higher sensitivity, with selectable sensitivity and optional automatic window centring after the gesture settles.
+- Strong window snapping can centre nearby smaller windows; Normal retains the original full-screen snap.
+- Overview clicks centre and enter windows by default; double-click enters at the clicked position. Settings can reverse these actions.
+
 ## 0.1.4
 
 - Windows keep their places on the canvas. They no longer shift after a new window opens or as you switch between apps, and closing a window from the canvas leaves the canvas where it was.
