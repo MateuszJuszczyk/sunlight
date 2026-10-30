@@ -47,4 +47,27 @@ final class SwitcherKeysTests: XCTestCase {
         XCTAssertEqual(act(down, .maskControl, open: false), .pass, "⌃↓ is the app's own")
         XCTAssertEqual(act(grave, .maskAlternate, open: false), .pass, "⌥` is the app's own")
     }
+
+    // MARK: ⌘N inside a window
+
+    func testCommandNIsTheCanvasesOnlyInsideAWindowThatPlacesNewWindows() {
+        let n: Int64 = 45
+        var state = KeyTap.State()
+        XCTAssertEqual(KeyTap.action(keyCode: n, flags: .maskCommand, state: &state), .pass)
+        state.entered = true
+        XCTAssertEqual(KeyTap.action(keyCode: n, flags: .maskCommand, state: &state), .pass)
+        state.placesNewWindow = true
+        XCTAssertEqual(KeyTap.action(keyCode: n, flags: .maskCommand, state: &state), .send(.newWindow))
+        XCTAssertEqual(KeyTap.action(keyCode: n, flags: [.maskCommand, .maskShift], state: &state), .pass)
+        XCTAssertEqual(KeyTap.action(keyCode: n, flags: [], state: &state), .pass)
+    }
+
+    func testCommandNIsTheNWhereverTheLayoutHasIt() {
+        var state = KeyTap.State()
+        state.entered = true
+        state.placesNewWindow = true
+        // Dvorak: the key at QWERTY N types b, and N is at QWERTY L (37).
+        XCTAssertEqual(KeyTap.action(keyCode: 45, flags: .maskCommand, state: &state, character: "b"), .pass)
+        XCTAssertEqual(KeyTap.action(keyCode: 37, flags: .maskCommand, state: &state, character: "n"), .send(.newWindow))
+    }
 }

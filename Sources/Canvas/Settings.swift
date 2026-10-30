@@ -214,7 +214,9 @@ enum Settings {
     }
 
     /// A dragged or resized window pushes its neighbours out of the way instead of covering them (see
-    /// `Magnetism`). Off, they overlap as they always did. ⌘ overlaps either way.
+    /// `Magnetism`). Off, they overlap as they always did. ⌘ overlaps either way. On, a window that opens
+    /// over others from inside a window, or back at a last-run place that's been taken, goes to the
+    /// nearest free spot too (`CanvasController.placeInFront`, `placeNewWindows`).
     static var magnetism: Bool {
         get { defaults.object(forKey: magnetismKey) as? Bool ?? false }
         set { defaults.set(newValue, forKey: magnetismKey) }
@@ -913,16 +915,13 @@ final class SettingsModel: ObservableObject {
         Settings.stripModeEnabled = on
     }
 
-    func setScreenCapture(_ on: Bool) {
-        objectWillChange.send()
-        Settings.screenCapture = on
-        onRendererChange(Settings.renderer)   // off, the renderer is live windows again
-    }
-
+    /// The pane's one choice: live windows, or screen capture. Screen capture is the mode with the capture
+    /// renderer; live windows turns the mode off, so nothing streams while the add-on comes back either.
     func setRenderer(_ renderer: Settings.Renderer) {
         objectWillChange.send()
+        Settings.screenCapture = renderer == .capture
         Settings.renderer = renderer
-        onRendererChange(renderer)
+        onRendererChange(Settings.renderer)
         refresh()
     }
 
@@ -1563,34 +1562,18 @@ private struct LiveWindowsPane: View {
                               detail: "Live windows are the real windows, scaled onto the canvas by an addition in the Dock. They need System Integrity Protection partly off.")
             }
             Section {
-                Toggle(isOn: model.bind({ Settings.screenCapture }, { model.setScreenCapture($0) })) {
-                    RowLabel(title: "Screen capture mode",
-                             subtitle: "Windows are streamed as pictures instead of shown live. Uses more memory and power.")
+                Picker(selection: model.bind({ Settings.renderer }, { model.setRenderer($0) })) {
+                    Text("Live windows").tag(Settings.Renderer.realWindows)
+                    Text("Screen capture").tag(Settings.Renderer.capture)
+                } label: {
+                    RowLabel(title: "Mode", subtitle: rendererSubtitle)
                 }
-                if Settings.screenCapture {
-                    Picker(selection: model.bind({ Settings.renderer }, { model.setRenderer($0) })) {
-                        Text("Pictures").tag(Settings.Renderer.capture)
-                        Text("Live windows").tag(Settings.Renderer.realWindows)
-                    } label: {
-                        RowLabel(title: "Show windows as",
-                                 subtitle: model.liveSelectable
-                                     ? "Live windows can be chosen even in capture mode; they load when picked."
-                                     : "Live windows can’t be loaded on this Mac, so pictures it is.")
-                    }
-                    .pickerStyle(.segmented)
-                    .disabled(!model.liveSelectable)
-                    Picker(selection: model.bind({ Settings.captureMethod }, { Settings.captureMethod = $0 })) {
-                        ForEach(CaptureMethod.allCases, id: \.self) { method in
-                            Text(method.title).tag(method)
-                        }
-                    } label: {
-                        RowLabel(title: "Capture method",
-                                 subtitle: "How pictures of the windows in front are taken. SkyLight is lighter where it’s available.")
-                    }
-                }
+                .pickerStyle(.segmented)
+                // Can't load live windows here: screen capture stays, but a Mac showing stills may still pick it.
+                .disabled(!model.liveSelectable && Settings.renderer == .capture)
             } header: {
-                SectionHeader(title: "Without live windows",
-                              detail: "For Macs that can’t load live windows.")
+                SectionHeader(title: "How windows show",
+                              detail: "Live windows are the real windows. Screen capture streams pictures of them instead, for Macs that can’t load live windows; it uses more memory and power.")
             }
             Section {
                 DisclosureGroup(isExpanded: $model.showSetupLog) {
@@ -1608,6 +1591,16 @@ private struct LiveWindowsPane: View {
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
+    }
+
+    private var rendererSubtitle: String {
+        if !model.liveSelectable {
+            return Settings.renderer == .capture
+                ? "Live windows can’t be loaded on this Mac, so screen capture it is."
+                : "Live windows can’t be loaded on this Mac. Pick Screen capture to see windows move."
+        }
+        if Settings.previewMode { return "Screen capture until setup loads live windows, then live by themselves." }
+        return Settings.renderer == .capture ? "Live windows load again when picked." : "The real windows, scaled by the Dock."
     }
 
     private var setupValue: String {

@@ -54,4 +54,35 @@ final class OpenHereTests: XCTestCase {
         XCTAssertNil(NewWindowMenu.best([item("New Window", key: "N", enabled: false)]))
         XCTAssertNil(NewWindowMenu.best([item("Open…", key: "O"), item("Close", key: "W")]))
     }
+
+    // MARK: Whether ⌘N inside a window is the canvas's
+
+    func testCommandNThatSaysWindowIsTaken() {
+        XCTAssertEqual(NewWindowMenu.windowCommandN([item("New Tab", key: "T"), item("New Finder Window", key: "N")]), 1)
+        let terminal = [item("New Window", submenu: true), item("New Window with Profile - Basic", key: "N")]
+        XCTAssertEqual(NewWindowMenu.windowCommandN(terminal), 1)
+    }
+
+    func testCommandNThatMayNotMakeAWindowIsLeftToTheApp() {
+        XCTAssertNil(NewWindowMenu.windowCommandN([item("New Note", key: "N")]))
+        XCTAssertNil(NewWindowMenu.windowCommandN([item("New File…", key: "N"), item("New Window", key: "T", commandOnly: false)]))
+        XCTAssertNil(NewWindowMenu.windowCommandN([item("New Window", key: "N", enabled: false)]))
+        // Mail: ⌘N is New Message; ⌥⌘N's New Viewer Window isn't ⌘N's.
+        XCTAssertNil(NewWindowMenu.windowCommandN([item("New Message", key: "N"),
+                                                   item("New Viewer Window", key: "N", commandOnly: false)]))
+    }
+
+    func testWhenNoItemReadsAsCommandAloneTheFirstWindowOneIsTaken() {
+        // Finder on macOS 27: every N item reads as having more than ⌘.
+        let finder = [item("New Finder Window", key: "N", commandOnly: false),
+                      item("New Folder", key: "N", commandOnly: false, enabled: false)]
+        XCTAssertEqual(NewWindowMenu.windowCommandN(finder), 0)
+    }
+
+    func testWhenNoItemReadsAsCommandAloneAFirstItemThatIsntAWindowsLeavesItToTheApp() {
+        // ⌘N makes a document; the window item after it is ⇧⌘N's.
+        let editor = [item("New Document", key: "N", commandOnly: false),
+                      item("New Private Window", key: "N", commandOnly: false)]
+        XCTAssertNil(NewWindowMenu.windowCommandN(editor))
+    }
 }

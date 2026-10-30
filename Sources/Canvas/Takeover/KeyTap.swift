@@ -18,11 +18,16 @@ final class KeyTap: @unchecked Sendable {
         case appSwitchCancel
         case missionControl
         case showDesktop
+        /// ⌘N in a window whose app's ⌘N makes a window, when the canvas places new windows itself.
+        case newWindow
     }
 
     struct State: Sendable {
         var entered = false
         var switcherOpen = false
+        /// ⌘N is the canvas's to handle (`Command.newWindow`): the entered app's ⌘N makes a window and
+        /// windows push each other.
+        var placesNewWindow = false
         /// Key codes whose keyDown we swallowed; their keyUp is swallowed too so apps never see an orphan.
         var swallowed = Set<Int64>()
     }
@@ -34,6 +39,7 @@ final class KeyTap: @unchecked Sendable {
     }
 
     private static let tab: Int64 = 48
+    private static let n: Int64 = 45
     /// The key left of 1 (` on US layouts): ⌘` walks an app's windows, as on the Mac.
     private static let grave: Int64 = 50
     private static let escape: Int64 = 53
@@ -79,7 +85,15 @@ final class KeyTap: @unchecked Sendable {
 
     /// Whether a real window is in front (changes what ⌘Tab means).
     func update(entered: Bool) {
-        state.withLock { $0.entered = entered }
+        state.withLock {
+            $0.entered = entered
+            if !entered { $0.placesNewWindow = false }
+        }
+    }
+
+    /// Whether ⌘N in the entered window is the canvas's (`Command.newWindow`).
+    func update(placesNewWindow: Bool) {
+        state.withLock { $0.placesNewWindow = placesNewWindow && $0.entered }
     }
 
     // MARK: Tap thread
@@ -143,8 +157,9 @@ final class KeyTap: @unchecked Sendable {
         let action: Action
         switch type {
         case .keyDown:
+            let character = flags.contains(.maskCommand) ? KeyTap.character(of: event) : nil
             action = state.withLock { s -> Action in
-                let a = KeyTap.action(keyCode: keyCode, flags: flags, state: &s)
+                let a = KeyTap.action(keyCode: keyCode, flags: flags, state: &s, character: character)
                 if case .pass = a {} else { s.swallowed.insert(keyCode) }
                 return a
             }
@@ -175,11 +190,25 @@ final class KeyTap: @unchecked Sendable {
         }
     }
 
-    static func action(keyCode: Int64, flags: CGEventFlags, state: inout State) -> Action {
+    /// What the key types on the current layout, ⌘ aside: ⌘N is the N wherever the layout has it.
+    private static func character(of event: CGEvent) -> String? {
+        var length = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        event.keyboardGetUnicodeString(maxStringLength: chars.count, actualStringLength: &length, unicodeString: &chars)
+        return length > 0 ? String(utf16CodeUnits: chars, count: length).lowercased() : nil
+    }
+
+    /// `character`: what the key types (`character(of:)`), where known; the N key's code stands in for it.
+    static func action(keyCode: Int64, flags: CGEventFlags, state: inout State, character: String? = nil) -> Action {
         let command = flags.contains(.maskCommand)
         let control = flags.contains(.maskControl)
         let option = flags.contains(.maskAlternate)
         let shift = flags.contains(.maskShift)
+
+        if character.map({ $0 == "n" }) ?? (keyCode == n), state.entered, state.placesNewWindow,
+           command, !control, !option, !shift {
+            return .send(.newWindow)
+        }
 
         switch keyCode {
         case tab where command && !control && !option:

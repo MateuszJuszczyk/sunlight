@@ -9,15 +9,16 @@ An infinite, zoomable canvas of **real macOS windows and desktop widgets**, alwa
 real window at 1:1. Public APIs almost everywhere: ScreenCaptureKit for live window textures, Accessibility
 for moving/raising windows and using widgets. One-shot proxy refreshes can use a private window-server call,
 SkyLight's `SLSHWCaptureWindowList` (looked up at runtime, with ScreenCaptureKit as the fallback); the
-**Settings › Live Windows › Capture method** switches between them. This renderer needs no SIP changes, no virtual displays
+**Capture Method** submenu in the menu bar menu switches between them. This renderer needs no SIP changes, no virtual displays
 and no entitlements; live windows (below) do need SIP partly off.
 
-Screen capture mode is a feature flag, off by default (Settings › Live Windows › **Screen capture
-mode**, defaults key `ScreenCaptureMode`): Sunlight then always asks for **Scaled real windows** (below).
+Screen capture mode is a feature flag, off by default (Settings › Live Windows › **Mode**:
+Screen capture, defaults key `ScreenCaptureMode`): with Live windows chosen, Sunlight always asks for **Scaled
+real windows** (below).
 While the live-window add-on isn't answering (being loaded, or after a Dock restart) the canvas falls back
 to capture proxies without any stream: each window and widget is a still, one renewed a second in turn.
-With the flag on, Capture proxies can be chosen as the renderer, and up to eight windows, the largest on
-screen, stream live.
+Choosing Screen capture turns the flag on together with the capture renderer, and up to eight windows, the
+largest on screen, stream live.
 
 A fresh install starts in **preview mode** instead: until live windows have loaded once on the Mac
 (defaults key `LiveWindowsEverLoaded`), the capture renderer streams as in screen capture mode, so

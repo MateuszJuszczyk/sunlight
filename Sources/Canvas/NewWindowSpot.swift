@@ -23,19 +23,50 @@ enum NewWindowSpot {
         // Aimed at a spot near the edge of the view: pushed in just far enough to be all on screen.
         if target != nil { middle = inside(middle, view) }
         guard !isClear(middle, of: others, gap: gap) else { return middle }
+        return beside(others, from: middle, gap: gap) { score($0, target: centre, view: view) }
+    }
+
+    /// A spot the window already has (where it was last run): kept if it's still free, otherwise the
+    /// free spot nearest it, beside the windows that took it, in view or not.
+    static func free(_ r: CGRect, avoiding others: [CGRect], gap: CGFloat) -> CGRect {
+        guard !isClear(r, of: others, gap: gap) else { return r }
+        let centre = CGPoint(x: r.midX, y: r.midY)
+        return beside(others, from: r, gap: gap) { hypot($0.midX - centre.x, $0.midY - centre.y) }
+    }
+
+    /// What a window that just opened in front, at 1:1 (from inside a window), does about the windows
+    /// it covers. `window`: where it opened, in the world. `near`: the point it should stay close to (the
+    /// middle of the window in use). `view`: the part of the world on screen.
+    enum InFront: Equatable {
+        /// It covers nothing: it stays where it opened.
+        case stay
+        /// There's room on screen: it moves there, and nothing else does.
+        case move(CGRect)
+        /// The nearest room is off screen: the view goes over to it there.
+        case slide(CGRect)
+    }
+
+    static func inFront(_ window: CGRect, avoiding others: [CGRect], view: CGRect, gap: CGFloat, near: CGPoint) -> InFront {
+        guard !isClear(window, of: others, gap: gap) else { return .stay }
+        let r = spot(size: window.size, avoiding: others, view: view, gap: gap, target: near)
+        return view.contains(r) ? .move(r) : .slide(r)
+    }
+
+    /// The best-scoring (lowest) free spot touching any of `others`, for a window the size of `r`.
+    private static func beside(_ others: [CGRect], from r: CGRect, gap: CGFloat, score: (CGRect) -> CGFloat) -> CGRect {
         var best: (rect: CGRect, score: CGFloat)?
         for o in others {
-            for origin in candidates(beside: o, size: size, gap: gap, middle: middle.origin) {
-                let r = CGRect(origin: origin, size: size)
-                guard isClear(r, of: others, gap: gap) else { continue }
-                let s = score(r, target: centre, view: view)
-                if best == nil || s < best!.score { best = (r, s) }
+            for origin in candidates(beside: o, size: r.size, gap: gap, middle: r.origin) {
+                let c = CGRect(origin: origin, size: r.size)
+                guard isClear(c, of: others, gap: gap) else { continue }
+                let s = score(c)
+                if best == nil || s < best!.score { best = (c, s) }
             }
         }
         if let best { return best.rect }
         // Nothing beside anything is free (it can't happen with finite windows, but): right of them all.
         let bounds = others.reduce(CGRect.null) { $0.union($1) }
-        return CGRect(origin: CGPoint(x: bounds.maxX + gap, y: bounds.minY), size: size)
+        return CGRect(origin: CGPoint(x: bounds.maxX + gap, y: bounds.minY), size: r.size)
     }
 
     /// `r` moved the least to lie inside `view`, along each axis it fits on.

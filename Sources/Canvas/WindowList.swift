@@ -37,6 +37,18 @@ enum WindowList {
         }
     }
 
+    /// One window, if it's on screen: for watching for a single window without listing them all.
+    nonisolated static func onScreen(_ id: CGWindowID) -> WindowInfo? {
+        guard id != 0, let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]],
+              let d = list.first, (d[kCGWindowIsOnscreen as String] as? Bool) == true,
+              let pid = (d[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+              let layer = (d[kCGWindowLayer as String] as? NSNumber)?.intValue,
+              let b = d[kCGWindowBounds as String],
+              let bounds = CGRect(dictionaryRepresentation: b as! CFDictionary) else { return nil }
+        return WindowInfo(id: id, pid: pid, layer: layer, bounds: bounds, title: d[kCGWindowName as String] as? String,
+                          alpha: (d[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1)
+    }
+
     /// Whether a window still exists: on any Space, minimized or not. A fraction of a millisecond,
     /// and no app is asked anything.
     ///

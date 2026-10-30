@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+- Windows keep their places on the canvas. They no longer shift after a new window opens or as you switch between apps, and closing a window from the canvas leaves the canvas where it was.
+- Going into a window no longer leaves the app's other windows showing at full size on top of it or behind it, and an app sent back to the canvas no longer flashes its windows at full size.
+- An app you open from inside a window (from the Dock, or as it launches) gets its new window beside the one you're in, and you go straight into it.
+- Open Here… and new-window placement recognise an app's New Window command on any keyboard layout, and in Finder.
+- See All fits your windows only, and leaves the desktop's files and widgets out.
+- Settings > Live Windows has one "Show windows as" choice: Live windows or Screen capture.
+
 ## 0.1.3
 
 - Setup no longer covers System Settings or macOS's permission prompts: the setup window steps aside as you press Allow Accessibility, Allow Screen Recording or approve the background helper, and only stays above other apps while Sunlight is in front. The Uninstall window does the same.

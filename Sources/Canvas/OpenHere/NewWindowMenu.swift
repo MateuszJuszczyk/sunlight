@@ -27,13 +27,43 @@ enum NewWindowMenu {
         return commandN.first
     }
 
-    /// Presses the app's new-window item. Call off the main thread: every step is a round trip to the
-    /// app. False if it has no such item or the press didn't go through.
-    static func press(pid: pid_t) -> Bool {
+    /// ⌘N itself, when its item says it makes a window (Finder's New Finder Window, Safari's New Window),
+    /// not a new note or message that may not. Some apps' items don't say their modifiers right (Finder's
+    /// all read as more than ⌘ on macOS 27): when no N item reads as ⌘ alone, the first N item is taken
+    /// to be ⌘N's, as menus list ⌘N before ⇧⌘N, and counts only if it says window. Pure, for tests.
+    static func windowCommandN(_ items: [Item]) -> Int? {
+        let n = items.indices.filter { items[$0].enabled && !items[$0].hasSubmenu && items[$0].key == "N" }
+        let plain = n.filter { items[$0].commandOnly }
+        let candidates = plain.isEmpty ? Array(n.prefix(1)) : plain
+        return candidates.first { items[$0].title.localizedCaseInsensitiveContains("window") }
+    }
+
+    /// Presses the app's new-window item (`pick`, `best` unless asked otherwise). Call off the main thread:
+    /// every step is a round trip to the app. False if it has no such item or the press didn't go through.
+    static func press(pid: pid_t, pick: ([Item]) -> Int? = NewWindowMenu.best) -> Bool {
+        guard let menu = items(pid: pid), let i = pick(menu.items) else { return false }
+        NSLog("Open Here: pressing “\(menu.items[i].title)”")
+        return AXUIElementPerformAction(menu.elements[i], kAXPressAction as CFString) == .success
+    }
+
+    /// Whether the app's ⌘N makes a window (`windowCommandN`). Off the main thread, as `press`.
+    static func commandNMakesWindow(pid: pid_t) -> Bool {
+        guard let menu = items(pid: pid) else {
+            NSLog("New window: pid \(pid)'s menu bar couldn't be read")
+            return false
+        }
+        if let i = windowCommandN(menu.items) { NSLog("New window: pid \(pid)'s ⌘N is “\(menu.items[i].title)”"); return true }
+        let n = menu.items.filter { $0.key == "N" }.map { "“\($0.title)” ⌘only \($0.commandOnly) enabled \($0.enabled)" }
+        NSLog("New window: pid \(pid): \(menu.items.count) menu items, none a window's ⌘N; N items: \(n)")
+        return false
+    }
+
+    /// The app's menu items that could open a window, with their elements.
+    private static func items(pid: pid_t) -> (elements: [AXUIElement], items: [Item])? {
         let app = AXWindow.application(pid, timeout: 0.5)
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute as CFString, &ref) == .success,
-              let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return false }
+              let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
         let bar = ref as! AXUIElement
         var elements: [AXUIElement] = []
         var items: [Item] = []
@@ -44,7 +74,8 @@ enum NewWindowMenu {
                 elements.append(element)
                 items.append(Item(title: title,
                                   key: element.string(kAXMenuItemCmdCharAttribute)?.uppercased(),
-                                  commandOnly: element.int(kAXMenuItemCmdModifiersAttribute) == 0,
+                                  // No modifiers attribute is ⌘ alone too (its default).
+                                  commandOnly: (element.int(kAXMenuItemCmdModifiersAttribute) ?? 0) == 0,
                                   enabled: element.bool(kAXEnabledAttribute),
                                   hasSubmenu: submenu != nil))
                 // Terminal's New Window is a submenu of profiles; ⌘N is the default one inside it.
@@ -57,8 +88,6 @@ enum NewWindowMenu {
         for barItem in bar.children.dropFirst() {
             for menu in barItem.children { collect(menu, depth: 0) }
         }
-        guard let i = best(items) else { return false }
-        NSLog("Open Here: pressing “\(items[i].title)”")
-        return AXUIElementPerformAction(elements[i], kAXPressAction as CFString) == .success
+        return (elements, items)
     }
 }

@@ -166,7 +166,7 @@ final class WindowProxy {
     private var shadowSize: CGSize = .zero
     /// Until then, a real frame that differs from `lastRealFrame` is ScreenCaptureKit catching up with a
     /// resize of ours, not the user moving the window (see `resized(toReal:)`).
-    private var holdFrameUntil = Date.distantPast
+    private(set) var holdFrameUntil = Date.distantPast
 
     /// True while the window's pixels arrive as a stream. Off whenever the real window may be in front
     /// of the canvas, where the stream's capture pill would show on it.
@@ -815,7 +815,7 @@ final class WindowProxy {
     }
 }
 
-private extension CGRect {
+extension CGRect {
     /// Within half a point on every edge: the window server and Accessibility round differently.
     func isClose(to r: CGRect) -> Bool {
         abs(minX - r.minX) < 0.5 && abs(minY - r.minY) < 0.5 && abs(width - r.width) < 0.5 && abs(height - r.height) < 0.5

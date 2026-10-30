@@ -179,6 +179,9 @@ final class CanvasView: NSView {
     /// The right-click menu of a file on the floor, or (nil) the items the floor's ground adds.
     var floorMenu: ((DesktopIcon?) -> NSMenu?)?
     var onFloorCommand: ((DesktopFiles.Command) -> Void)?
+    /// Keys meant for a window the canvas is on its way into (a new one it goes over to): kept for it and
+    /// not acted on here. True when kept.
+    var holdsKey: ((NSEvent) -> Bool)?
     /// A widget the widgets' position setting places around the windows: a drag on it pans the canvas
     /// instead of moving it, and windows neither push it nor line up with it.
     var isPlacedBySetting: ((WindowProxy) -> Bool)?
@@ -907,11 +910,14 @@ final class CanvasView: NSView {
                       zoom: zoom, viewSize: bounds.size)
     }
 
-    /// The camera that frames every window; nil when the canvas is empty.
+    /// The camera that frames every window; nil when the canvas is empty. The desktop (its files and
+    /// widgets) is left out so See All is as close as the windows allow; with no windows, it's what's framed.
     var overviewCamera: Camera? {
-        var rects = proxies.map(\.worldRect)
-        // The desktop's files too.
-        if let floor = desktopFloor, floor.isEnabled, floor.windowID != nil { rects.append(floor.worldRect) }
+        var rects = proxies.filter { $0.kind == .window }.map(\.worldRect)
+        if rects.isEmpty {
+            rects = proxies.map(\.worldRect)
+            if let files = desktopFilesRect { rects.append(files) }
+        }
         guard let first = rects.first else { return nil }
         return framing(rects.dropFirst().reduce(first) { $0.union($1) })
     }
@@ -2345,7 +2351,18 @@ final class CanvasView: NSView {
         startDisplayLink()
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if holdsKey?(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if holdsKey?(event) == true { return }
+        super.keyUp(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
+        if holdsKey?(event) == true { return }
         // The desktop's keys, while its files have the canvas's attention and something's selected.
         if floorFocused, let command = DesktopFiles.command(keyCode: Int(event.keyCode), modifiers: event.modifierFlags),
            command == .selectAll || desktopFloor?.selection.isEmpty == false {

@@ -90,6 +90,9 @@ final class CanvasController {
     /// The window we handed off to; nil while the canvas is in front.
     private var activeProxy: WindowProxy?
     private var lastActiveProxy: WindowProxy?
+    /// The view camera the entered window's app was placed at (`enter`): what its windows' native frames
+    /// are read against on the way back, whatever the camera is doing by then.
+    private var enteredCamera: Camera?
     private var handingOff = false
     private var didInitialFit = false
     private var refreshTimer: Timer?
@@ -308,6 +311,7 @@ final class CanvasController {
         view.onFloorOpen = { [weak self] icon in self?.openFiles([icon]) }
         view.floorMenu = { [weak self] icon in self?.floorMenu(for: icon) }
         view.onFloorCommand = { [weak self] command in self?.floorCommand(command) }
+        view.holdsKey = { [weak self] event in self?.holdKey(event) ?? false }
         view.onSpring = { [weak self] proxy, point in self?.springInto(proxy, around: point) }
         view.onFileDragEnded = { [weak self] in self?.fileDragEnded() }
         view.onEnter = { [weak self] proxy, point in self?.handoff(to: proxy, placement: .inPlace(around: point)) }
@@ -414,7 +418,13 @@ final class CanvasController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 // A window entered on another display: this one's canvas stays up as it is.
-                if !self.staysUp { self.suspendRealWindows(keepingLook: true) }
+                if !self.staysUp {
+                    if let front = NSWorkspace.shared.frontmostApplication, self.sendsStraightBack(front) {
+                        self.holdThroughForeignFront(front)
+                    } else {
+                        self.suspendRealWindows(keepingLook: true)
+                    }
+                }
                 self.scheduleCapturePass()
             }
         }
@@ -780,6 +790,38 @@ final class CanvasController {
         view.hostWidgets(in: nil)
     }
 
+    /// An app the canvas sends straight back behind it as it comes forward (`foreignActivation`): one
+    /// still launching (from the canvas a launch stays on it), a launch kept on the canvas activating
+    /// itself again as its window shows, the app macOS brings forward after a close, one a layout
+    /// restore opened.
+    private func sendsStraightBack(_ app: NSRunningApplication) -> Bool {
+        let pid = app.processIdentifier
+        // As `foreignActivation` lets an activation through before it gets to these.
+        guard pid != myPID, activeProxy == nil, realWindowsPresented, app.activationPolicy == .regular,
+              let env, Date() >= env.ignoreActivationsUntil, addingWidgets == nil, !isSetupShowing,
+              pid != expectedActivationPID else { return false }
+        if Date() < quietAfterCloseUntil || !app.isFinishedLaunching { return true }
+        if let launch = launches[pid], Date() < launch.deadline { return true }
+        if let restoring, let id = app.bundleIdentifier, restoring.apps.contains(id) { return true }
+        return false
+    }
+
+    /// The canvas keeps its windows while such an app is in front for a moment: handing them back put
+    /// them at full size where they are natively, over the zoomed canvas, until it came back. If it
+    /// doesn't come back after all, they're handed back as usual.
+    private func holdThroughForeignFront(_ app: NSRunningApplication) {
+        NSLog("Canvas: \(app.localizedName ?? "pid \(app.processIdentifier)") came forward to be sent back — the windows stay on the canvas")
+        DispatchQueue.main.asyncAfter(deadline: .now() + CanvasController.foreignFrontHold) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !NSApp.isActive, !self.staysUp, self.realWindowsPresented else { return }
+                NSLog("Canvas: still not back in front — handing the windows back")
+                self.suspendRealWindows(keepingLook: true)
+            }
+        }
+    }
+
+    static let foreignFrontHold: TimeInterval = 0.5
+
     /// The canvas's own two windows back at the normal level, in case a lease ended without the add-on
     /// putting them there (the Dock died holding it, a socket error): an add-on from sunlight-11 lifts
     /// them one level up while live windows are presented, and AppKit's idea of their level never
@@ -1133,6 +1175,8 @@ final class CanvasController {
         /// When the first window took the spot: others of the app arriving with it (a browser restoring
         /// several) go beside it for a moment more.
         var placedAt: Date?
+        /// ⌘N from inside this window (`newWindowBeside`): if no window comes, back into it.
+        var returnTo: WindowProxy? = nil
     }
     private var openingHere: OpenHere?
     private var openHerePanel: OpenHerePanel?
@@ -1202,6 +1246,11 @@ final class CanvasController {
         guard let pending = openingHere, pending.pid == pid, pending.placedAt == nil else { return }
         openingHere = nil
         guard NSApp.isActive, activeProxy == nil, !handingOff, restoring == nil, !Settings.stripMode else { return }
+        if let back = pending.returnTo {
+            NSLog("New window: none came from \(pending.name) — back into \(back.title)")
+            if proxies[back.windowID] === back { handoff(to: back) } else { dropHeldKeys() }
+            return
+        }
         let windows = view.proxies.filter { $0.kind == .window && $0.pid == pid }
         guard let p = mru.lazy.compactMap({ id in windows.first { $0.windowID == id } }).first ?? windows.last else {
             NSLog("Open Here: \(pending.name) has no window on the canvas to bring over")
@@ -1854,6 +1903,7 @@ final class CanvasController {
                 : activeProxy != nil ? "a window is entered" : asleep ? "asleep" : "the live canvas"
             NSLog("Window events: window \(id) announced on \(state)")
         }
+        if id != 0, activeProxy != nil || pendingAbsorbPID != 0, !NSApp.isActive, takesInFront { return takeInFront(id) }
         guard renderer == .realWindows, isUp, activeProxy == nil, !asleep else { return }
         listNow()
         arrivalWatchUntil = CACurrentMediaTime() + CanvasController.arrivalWatch
@@ -1941,23 +1991,34 @@ final class CanvasController {
 
         // Frames and titles come from here and nowhere else, so two sources never disagree by a
         // fraction of a point and re-anchor a proxy.
-        var moved = 0
+        var moved: [String] = []
         for w in wanted {
             guard let p = proxies[w.id] else { continue }
             // WindowServer may report the transformed rectangle. Never feed our own camera output
             // back into the world model. After release the native frame is reconciled normally.
             if renderer == .realWindows && realWindowsPresented { continue }
+            // Only a window whose app has been in front since the last listing can have been moved by
+            // hand. Any other found somewhere else natively was put there by the canvas's own handoffs or by
+            // macOS: it keeps its place on the canvas, taking a new size where it's anchored.
+            if renderer == .realWindows, p.kind == .window, !inFrontSinceListing.contains(p.pid),
+               !w.bounds.isClose(to: p.lastRealFrame), Date() >= p.holdFrameUntil {
+                _ = p.reconcile(title: w.title ?? "", realFrame: p.lastRealFrame, camera: globalCamera)   // the title only
+                if w.bounds.size != p.lastRealFrame.size { p.resized(toReal: w.bounds) } else { p.lastRealFrame = w.bounds }
+                continue
+            }
             let before = p.worldRect.origin
             // A widget's own spot is where it is on the desktop at 1:1 (`arrangeDesktop` takes it from there).
             if p.reconcile(title: w.title ?? "", realFrame: w.bounds, camera: p.kind == .widget ? Camera() : globalCamera) {
-                moved += 1
+                moved.append("\(p.appName) (\(Int(before.x)), \(Int(before.y))) → (\(Int(p.worldRect.minX)), \(Int(p.worldRect.minY)))")
                 movedForReal(p, from: before)
             }
         }
 
+        if NSApp.isActive, activeProxy == nil { inFrontSinceListing = [] }
+
         let new = wantedIDs.subtracting(proxies.keys).subtracting(unstreamable.keys)
-        if gone > 0 || moved > 0 || !new.isEmpty {
-            NSLog("Sync: \(list.count) on screen, \(wanted.count) wanted, +\(new.count) −\(gone), \(moved) moved\(new.isEmpty || renderer == .realWindows ? "" : " → asking ScreenCaptureKit")")
+        if gone > 0 || !moved.isEmpty || !new.isEmpty {
+            NSLog("Sync: \(list.count) on screen, \(wanted.count) wanted, +\(new.count) −\(gone), \(moved.count) moved\(moved.isEmpty ? "" : " (\(moved.joined(separator: "; ")))")\(new.isEmpty || renderer == .realWindows ? "" : " → asking ScreenCaptureKit")")
         }
         if renderer == .realWindows {
             var created: [WindowProxy] = []
@@ -1975,6 +2036,7 @@ final class CanvasController {
             let placed = placeRemembered(created)
             if created.contains(where: { $0.kind == .widget }) { arrangeDesktop(animated: false) }
             noteStripArrivals(created, arriving: arriving)
+            if arriving, !NSApp.isActive || activeProxy != nil { noteArrived(created) }
             placeNewWindows(created, arriving: arriving)
             if !didInitialFit, !proxies.isEmpty {
                 didInitialFit = true
@@ -2006,7 +2068,7 @@ final class CanvasController {
         runPendingPlacement()
         arrangeDesktop(animated: true)
         scheduleCapturePass()
-        if gone > 0 || moved > 0 { remember() }
+        if gone > 0 || !moved.isEmpty { remember() }
     }
 
     /// The placement asked for from inside a real window, now that the canvas is up with its windows.
@@ -2126,6 +2188,7 @@ final class CanvasController {
         let placed = placeRemembered(createdProxies)
         if createdProxies.contains(where: { $0.kind == .widget }) { arrangeDesktop(animated: false) }
         noteStripArrivals(createdProxies, arriving: arriving)
+        if arriving, !NSApp.isActive || activeProxy != nil { noteArrived(createdProxies) }
         placeNewWindows(createdProxies, arriving: arriving)
         if created > 0 { layoutStripWhenIdle() }
         if !didInitialFit, !proxies.isEmpty {
@@ -2385,6 +2448,7 @@ final class CanvasController {
             let p = register(WindowProxy(info: w, camera: camera, scale: scale))
             proxies[windowID] = p
             view.add(p)
+            noteArrived([p])
             return p
         }
         for attempt in 0..<3 {
@@ -2397,6 +2461,7 @@ final class CanvasController {
                 let p = register(WindowProxy(window: w, camera: camera, scale: scale))
                 proxies[windowID] = p
                 view.add(p)
+                noteArrived([p])
                 return p
             }
             if attempt < 2 { try? await Task.sleep(for: .milliseconds(150)) }
@@ -2415,6 +2480,7 @@ final class CanvasController {
             return
         }
         NSLog("Close: \(p.appName) — \(p.title)")
+        if NSApp.isActive, activeProxy == nil { quietAfterCloseUntil = Date().addingTimeInterval(CanvasController.closeQuiet) }
         // Off the main thread: the press may not return until the app has put up its sheet.
         let known = p.ax, id = p.windowID, pid = p.pid, approx = p.lastRealFrame, name = p.appName, title = p.title
         AXQueue.interactive.async { [weak self] in
@@ -2439,6 +2505,10 @@ final class CanvasController {
             }
         }
     }
+
+    /// After a close from the canvas, until when an app coming forward is the close's doing (`foreignActivation`).
+    private var quietAfterCloseUntil = Date.distantPast
+    static let closeQuiet: TimeInterval = 1
 
     // MARK: Hidden and minimized windows
 
@@ -2900,17 +2970,33 @@ final class CanvasController {
     /// frame, so they pop in at the new spot. Not the launch sync's, a layout's or the last run's (they
     /// have their places), and not on the strip (it lays them out).
     /// Open Here…'s window goes to its spot instead, even one the last run had a place for.
+    /// With windows pushing each other, the last run's place is kept only while it's free: taken since,
+    /// the window goes to the free spot nearest it (one bonded to others stays with them).
     private func placeNewWindows(_ created: [WindowProxy], arriving: Bool) {
         guard arriving, restoring == nil, !Settings.stripMode else { return }
         var targets: [CGWindowID: CGPoint] = [:]
         for p in created { targets[p.windowID] = openHereSpot(for: p) }
         let arrivals = created.filter { $0.kind == .window && (!rememberedClaimed.contains($0.windowID) || targets[$0.windowID] != nil) }
-        guard !arrivals.isEmpty else { return }
-        let fresh = Set(arrivals.map(\.windowID))
+        let returning = !Settings.magnetism ? [] : created.filter {
+            $0.kind == .window && rememberedClaimed.contains($0.windowID) && targets[$0.windowID] == nil
+                && !view.grouping.isGrouped($0.windowID)
+        }
+        guard !arrivals.isEmpty || !returning.isEmpty else { return }
+        let fresh = Set((arrivals + returning).map(\.windowID))
         let settled = view.proxies.filter { $0.kind == .window && !fresh.contains($0.windowID) } + Array(away.values)
         var others = settled.map(\.worldRect)
-        let visible = view.camera.toWorld(visibleTopLeft)
         let gap = Tidy.Spacing.normal.points(gap: Settings.tileGap)
+        for p in returning {
+            let spot = NewWindowSpot.free(p.worldRect, avoiding: others, gap: gap)
+            if spot.origin != p.worldRect.origin {
+                NSLog("New window: \(p.appName) — \(p.title)'s place from last run is taken, \(p.worldRect.origin) → \(spot.origin)")
+                p.worldRect.origin = spot.origin
+                p.layout(zoom: view.camera.zoom)
+                rememberSoon()
+            }
+            others.append(spot)
+        }
+        let visible = view.camera.toWorld(visibleTopLeft)
         var shown = CGRect.null
         for p in arrivals {
             let spot = NewWindowSpot.spot(size: p.worldRect.size, avoiding: others, view: visible, gap: gap,
@@ -2923,8 +3009,9 @@ final class CanvasController {
             others.append(spot)
             shown = shown.union(spot)
         }
-        // Somewhere off screen was the only room: the camera slides just far enough to show it.
-        guard !shown.isNull, !visible.contains(shown), view.isStill else { return }
+        // Somewhere off screen was the only room: the camera slides just far enough to show it. Not
+        // from inside a window: the camera there is the one that lines it up with the real window.
+        guard !shown.isNull, !visible.contains(shown), view.isStill, activeProxy == nil else { return }
         var dx: CGFloat = 0, dy: CGFloat = 0
         if shown.width <= visible.width {
             dx = shown.minX < visible.minX ? shown.minX - visible.minX : max(0, shown.maxX - visible.maxX)
@@ -3977,12 +4064,22 @@ final class CanvasController {
                 // natively where it is drawn: that is where it lives from now, as for the entered window,
                 // so the listing sees no move. The canvas keeps its live look behind them (see
                 // `suspendRealWindows`), so nothing on screen changes but the windows out of view leaving.
+                // Where each really went (macOS keeps a window's top below the menu bar), not where it was
+                // asked to: the listing reads a difference as the window moved, and moved it on the canvas.
+                // The window server is the one source of native frames on the live canvas, here as in
+                // the listing: Accessibility's frame can differ by a fraction, and may not exist at all.
+                let listed = self.nativeFrames()
                 if self.realWindows.lastRestoreKept {
-                    for (q, at) in kept { q.lastRealFrame = at }
-                    NSLog("Handoff: \(kept.count) other window(s) in view stay on show")
+                    for (q, at) in kept { q.lastRealFrame = listed[q.windowID] ?? at }
+                    let own = kept.filter { $0.proxy.pid == p.pid }.count
+                    NSLog("Handoff: \(kept.count - own) other window(s) in view stay on show, \(own) of its app's where the canvas has them")
                 }
                 self.realWindowsPresented = false
-                let landed = p.ax?.frame ?? CGRect(origin: destination, size: p.worldRect.size)
+                // An add-on before sunlight-10 doesn't keep windows: its app's others go through Accessibility.
+                self.alignSiblings(of: p, except: self.realWindows.lastRestoreKept ? Set(kept.map(\.proxy.windowID)) : [])
+                let landed = listed[p.windowID] ?? p.ax?.frame ?? CGRect(origin: destination, size: p.worldRect.size)
+                self.checkPlacement(of: [p] + kept.map(\.proxy) + self.proxies.values.filter { $0.pid == p.pid && $0 !== p },
+                                    among: listed, camera: self.view.camera, at: "seam")
                 self.enter(p, realFrame: landed, activateApp: true)
             }
             if !clicked, spatial || view.isFlying { view.fly(to: target, completion: complete) }
@@ -4076,7 +4173,8 @@ final class CanvasController {
     /// (pixel-aligned), which is where it goes natively. They stay in front of the canvas under the
     /// entered window, real windows to be used as they are; a click on one enters it where it is (its
     /// app activates, `foreignActivation`). Windows out of view are left out, put back under the
-    /// backdrop as before, and so are parked ones, which are out of view by definition.
+    /// backdrop as before, and so are parked ones, which are out of view by definition; but for the
+    /// entered app's own, which go off screen.
     private func keptOnShow(entering p: WindowProxy) -> [(proxy: WindowProxy, at: CGRect)] {
         let camera = view.camera
         guard abs(camera.zoom - 1) < 0.001 else { return [] }
@@ -4084,7 +4182,10 @@ final class CanvasController {
         var kept: [(proxy: WindowProxy, at: CGRect)] = []
         for q in view.proxies where q !== p && q.kind == .window && q.away == nil && lastWantedIDs.contains(q.windowID) {
             var r = camera.toScreen(q.worldRect.insetBy(dx: -q.inset, dy: -q.inset))
-            guard r.intersects(screenRect), !r.intersection(screenRect).isEmpty else { continue }
+            // The app's other windows too, out of view or not: its activation raises them all, and natively
+            // they could be anywhere (one Accessibility can't see yet, just made, never moved): this puts
+            // them where the canvas has them, off screen if that's out of view, in the handoff's one update.
+            guard q.pid == p.pid || (r.intersects(screenRect) && !r.intersection(screenRect).isEmpty) else { continue }
             r.origin = CGPoint(x: (r.minX * scale).rounded() / scale, y: (r.minY * scale).rounded() / scale)
             kept.append((q, toGlobal(r)))
         }
@@ -4240,6 +4341,48 @@ final class CanvasController {
     /// the seam needs.
     private static let stayingDuration: CFTimeInterval = 0.05
 
+    /// Every window on screen by id, as the window server has it (top-left global points): the one
+    /// source native frames are read from on the live canvas, so no two readings disagree by a fraction.
+    private func nativeFrames() -> [CGWindowID: CGRect] {
+        Dictionary(WindowList.onScreen().map { ($0.id, $0.bounds) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// The invariant a seam has to leave true: each of these windows sits natively where the canvas
+    /// draws it at `camera`, so that nothing reading native frames back later (the listing, the return)
+    /// finds a move the user never made. A miss is logged with both places, so a drift shows up in the
+    /// log on the first switch rather than in a screen recording. A point or two in y is macOS keeping
+    /// a window's top below the menu bar.
+    private func checkPlacement(of windows: [WindowProxy], among listed: [CGWindowID: CGRect], camera: Camera, at moment: String) {
+        for q in windows where q.kind == .window && q.away == nil {
+            guard let native = listed[q.windowID] else { continue }
+            let expected = toGlobal(camera.toScreen(q.worldRect.origin))
+            let dx = native.minX - expected.x, dy = native.minY - expected.y
+            guard abs(dx) > 1 || abs(dy) > 1 else { continue }
+            NSLog("Placement: \(q.appName) — \(q.title) is (\(Int(dx.rounded())), \(Int(dy.rounded()))) pt off its canvas place at the \(moment): natively (\(Int(native.minX)), \(Int(native.minY))), canvas (\(Int(expected.x)), \(Int(expected.y)))")
+        }
+    }
+
+    /// The entered window's app's other windows, moved natively to where they are on the canvas at the
+    /// camera it's entered at, before the app is activated: activating it brings all its windows forward,
+    /// and one left where it last was natively (in the middle of the screen, where it was in use) showed
+    /// up behind the window just entered. Out of view they go off screen, as far as macOS lets them, and
+    /// their native place keeps following the canvas, so nothing that reads it back (the listing, ⌘`)
+    /// moves them on it. The ones kept on show (`except`) are already where they're drawn.
+    private func alignSiblings(of p: WindowProxy, except kept: Set<CGWindowID>) {
+        guard renderer == .realWindows, abs(view.camera.zoom - 1) < 0.001 else { return }
+        let camera = view.camera
+        for q in proxies.values where q.pid == p.pid && q !== p && q.kind == .window && q.away == nil
+            && !kept.contains(q.windowID) && lastWantedIDs.contains(q.windowID) {
+            if q.ax == nil { q.ax = AXWindow.find(windowID: q.windowID, pid: q.pid, approximateFrame: q.lastRealFrame) }
+            guard let ax = q.ax, !ax.isFullScreen else { continue }
+            let origin = toGlobal(camera.toScreen(q.worldRect.origin))
+            guard hypot(origin.x - q.lastRealFrame.minX, origin.y - q.lastRealFrame.minY) > 1 else { continue }
+            ax.setPosition(origin)
+            q.lastRealFrame = ax.frame ?? CGRect(origin: origin, size: q.lastRealFrame.size)
+            NSLog("Handoff: \(q.appName) — \(q.title) natively to its place on the canvas, \(q.lastRealFrame.integral.origin)")
+        }
+    }
+
     /// The 1:1 camera at which the proxy sits exactly where the real window is on screen.
     private func cameraAligning(_ p: WindowProxy, with real: CGRect) -> Camera {
         let v = toView(real)
@@ -4254,11 +4397,15 @@ final class CanvasController {
         lastActiveProxy = p
         handingOff = false
         handoffTarget = nil
+        enteredCamera = view.camera
         scheduleCapturePass()
         p.hovered = false
         p.lastRealFrame = realFrame
         mru.removeAll { $0 == p.windowID }
         mru.insert(p.windowID, at: 0)
+        inFrontSinceListing.insert(p.pid)
+        arrivedAt[p.windowID] = nil
+        passOnHeldKeys(entering: p)
         desk?.entered(from: self)
         // Activating an app raises *all* its windows; every seam needs our shadow off, and no stream.
         for q in proxies.values where q.pid == p.pid { q.revealed = true }
@@ -4290,6 +4437,7 @@ final class CanvasController {
         if let env {
             env.watcher.observe(pid: p.pid, window: p.ax?.element)
             env.keyTap.update(entered: true)
+            updateNewWindowKey(for: p.pid)
             startEnteredTimer()
         }
         if springDrag {
@@ -4330,16 +4478,42 @@ final class CanvasController {
         guard let p = activeProxy else { return }
         activeProxy = nil
         for q in proxies.values where q.pid == p.pid { q.revealed = false }
-        if reconcile, let f = p.ax?.frame {
+        guard reconcile else { enteredCamera = nil; return scheduleCapturePass() }
+        // The windows are read against the camera they were placed at, not the camera now: the canvas
+        // may already be on its way somewhere else (See All zooming out), and a frame read against that
+        // camera lands the window where it never was. Read now, before anything else moves.
+        let placedAt = enteredCamera ?? view.camera
+        enteredCamera = nil
+        let camera = global(placedAt)
+        if !placedAt.isClose(to: view.camera) {
+            NSLog("Placement: the canvas is back at a camera other than the one \(p.appName) was entered at (zoom \(view.camera.zoom) at (\(Int(view.camera.origin.x)), \(Int(view.camera.origin.y))) vs 1 at (\(Int(placedAt.origin.x)), \(Int(placedAt.origin.y)))); its windows are read at the entry camera")
+        }
+        // On the live canvas the window server is the one source of native frames, as in the listing;
+        // Accessibility only when there's no listing to read (capture mode), or it has no entry for the
+        // window (Calendar's, at times, has none either way).
+        let live = renderer == .realWindows
+        let listed = live || p.ax == nil ? nativeFrames() : [:]
+        let frame = live ? listed[p.windowID] ?? p.ax?.frame : p.ax?.frame ?? listed[p.windowID]
+        if let f = frame {
             if let other = desk?.canvas(holding: f), other !== self {
                 // Moved to another display while in use: it lives on that display's canvas from now.
                 desk?.move(p.windowID, from: self, to: other)
             } else {
                 // Wherever the real window is now is where it lives on the canvas (the user may have moved it).
                 let before = p.worldRect.origin
-                p.reconcile(title: nil, realFrame: f, camera: globalCamera, force: true)
+                p.reconcile(title: nil, realFrame: f, camera: camera, force: true)
                 movedForReal(p, from: before)
             }
+        }
+        if live {
+            // Its app's other windows likewise; the listing then has nothing of this app's left to read.
+            for q in proxies.values where q.pid == p.pid && q !== p && q.kind == .window && q.away == nil {
+                guard let f = listed[q.windowID], !f.isClose(to: q.lastRealFrame), Date() >= q.holdFrameUntil else { continue }
+                let before = q.worldRect.origin
+                q.reconcile(title: nil, realFrame: f, camera: camera, force: true)
+                movedForReal(q, from: before)
+            }
+            inFrontSinceListing.remove(p.pid)
         }
         scheduleCapturePass()
     }
@@ -4686,11 +4860,333 @@ final class CanvasController {
         launchTimer = nil
     }
 
+    /// Apps that have been in front of the canvas since its last listing: only their windows can have
+    /// been moved by hand meanwhile.
+    private var inFrontSinceListing: Set<pid_t> = []
+
+    // MARK: New windows in front
+
+    /// When each window that opened in front of the canvas (from inside a window, or with another app in
+    /// front) showed up. It's placed as it's taken in (`placeInFront`) if that's soon after. Ones that open
+    /// with the canvas in front are placed as they arrive (`placeNewWindows`).
+    private var arrivedAt: [CGWindowID: CFTimeInterval] = [:]
+    /// How long after it showed up a window still counts as just opened.
+    static let arrivalWindow: CFTimeInterval = 3
+
+    private func noteArrived(_ created: [WindowProxy]) {
+        let now = CACurrentMediaTime()
+        arrivedAt = arrivedAt.filter { now - $0.value < CanvasController.arrivalWindow }
+        for p in created where p.kind == .window { arrivedAt[p.windowID] = now }
+    }
+
+    /// Whether `p` just opened and hasn't been placed or entered since. Asking takes the answer: it's
+    /// placed once.
+    private func takeArrival(_ p: WindowProxy) -> Bool {
+        guard let t = arrivedAt.removeValue(forKey: p.windowID) else { return false }
+        return CACurrentMediaTime() - t < CanvasController.arrivalWindow
+    }
+
+    /// The window used last, if it's on screen at the current camera: what a window opened from inside
+    /// it stays near.
+    private var lastInView: WindowProxy? {
+        guard let p = lastActiveProxy, proxies[p.windowID] === p,
+              view.camera.toWorld(visibleTopLeft).intersects(p.worldRect) else { return nil }
+        return p
+    }
+
+    /// A window that just opened in front at 1:1 (a link that opens one, an app opened from inside a
+    /// window; ⌘N is caught before it, `newWindowBeside`), with windows pushing each other: it doesn't
+    /// stay on top of the ones it covers (`NewWindowSpot.inFront`). The canvas comes forward with it at
+    /// the free spot nearest `near` and enters it there: where it is on screen if the spot is on screen,
+    /// otherwise going over to it. `real`: its frame on screen. True when the canvas takes it: the
+    /// caller then doesn't enter it.
+    private func placeInFront(_ p: WindowProxy, real: CGRect, near: WindowProxy?) -> Bool {
+        // On its way there already (its app focusing it meanwhile): the canvas enters it.
+        if heldKeys?.windowID == p.windowID { return true }
+        // Not while the canvas presents the live windows: their native frames aren't where they're drawn.
+        // The arrival is taken last: a placement put off for a moment (a handoff ending) is still to come.
+        guard Settings.magnetism, !Settings.stripMode, p.kind == .window, restoring == nil,
+              addingWidgets == nil, !handingOff, !(renderer == .realWindows && realWindowsPresented),
+              abs(view.camera.zoom - 1) < 0.001, takeArrival(p) else { return false }
+        let camera = view.camera
+        let opened = CGRect(origin: camera.toWorld(toView(real).origin), size: real.size)
+        let others = (view.proxies.filter { $0.kind == .window && $0 !== p } + Array(away.values)).map(\.worldRect)
+        let target = near.flatMap { $0 === p ? nil : CGPoint(x: $0.worldRect.midX, y: $0.worldRect.midY) }
+            ?? CGPoint(x: opened.midX, y: opened.midY)
+        let gap = Tidy.Spacing.normal.points(gap: Settings.tileGap)
+        let spot: CGRect, onScreen: Bool
+        switch NewWindowSpot.inFront(opened, avoiding: others, view: camera.toWorld(visibleTopLeft), gap: gap, near: target) {
+        case .stay:
+            // Where it really is: the listing may have placed the proxy for the canvas meanwhile.
+            p.worldRect.origin = opened.origin
+            return false
+        case .move(let r): (spot, onScreen) = (r, true)
+        case .slide(let r): (spot, onScreen) = (r, false)
+        }
+        p.worldRect.origin = spot.origin
+        p.lastRealFrame = real
+        p.holdFrame()   // the real window is still where it opened until the canvas takes it
+        p.layout(zoom: camera.zoom)
+        slide(into: p, onScreen: onScreen)
+        return true
+    }
+
+    /// The canvas comes forward, the new window already at its spot beside the one in use (which takes
+    /// it out from on top of it), and enters it: in place when the spot is on screen, otherwise going over
+    /// to it as ⌘Tab to a window off screen would. Keys typed on the way are held for it.
+    private func slide(into p: WindowProxy, onScreen: Bool) {
+        NSLog("New window: \(p.appName) — \(p.title) opened over others — to \(p.worldRect.origin)\(onScreen ? ", on screen" : ", over to it")")
+        holdKeys(for: p)
+        let asked = CACurrentMediaTime()
+        pendingPlacement = { [weak self, weak p] in
+            guard let self else { return }
+            // Only on the way: a canvas that took longer than that to come forward doesn't go there later.
+            guard let p, self.proxies[p.windowID] === p,
+                  CACurrentMediaTime() - asked < CanvasController.keyHoldLimit else { return self.dropHeldKeys() }
+            if onScreen {
+                self.handoff(to: p, placement: .inPlace(around: self.view.camera.toScreen(CGPoint(x: p.worldRect.midX, y: p.worldRect.midY))))
+            } else {
+                self.handoff(to: p, placement: .centered)
+            }
+        }
+        show()
+    }
+
+    /// Whether a window announced with another app in front is the canvas's to take in (`takeInFront`).
+    private var takesInFront: Bool { Settings.magnetism && !Settings.stripMode && renderer == .realWindows }
+
+    /// The window server announced a window while one is entered (or while an app opened from inside one
+    /// shows its first): a new window of the app in front is taken in at once, not when Accessibility
+    /// gets round to saying it's focused, which took up to most of a second while it sat on top. It may
+    /// not be on the listing yet: looked for every frame for a moment.
+    private func takeInFront(_ id: CGWindowID, until deadline: CFTimeInterval? = nil) {
+        guard takesInFront, proxies[id] == nil, away[id] == nil,
+              let front = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              front == activeProxy?.pid || front == pendingAbsorbPID else { return }
+        let deadline = deadline ?? CACurrentMediaTime() + CanvasController.arrivalWatch
+        guard let w = WindowList.onScreen(id) else {
+            guard CACurrentMediaTime() < deadline else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self] in
+                MainActor.assumeIsolated { self?.takeInFront(id, until: deadline) }
+            }
+            return
+        }
+        guard w.pid == front, isCanvasMaterial(w), (desk?.canvas(forWindow: w.id, frame: w.bounds) ?? self) === self else { return }
+        let near = activeProxy ?? lastInView
+        let p = register(WindowProxy(info: w, camera: globalCamera, scale: scale))
+        proxies[id] = p
+        view.add(p)
+        noteArrived([p])
+        NSLog("New window: \(id) (\(p.appName)) taken in as it was announced")
+        if placeInFront(p, real: w.bounds, near: near), pendingAbsorbPID == w.pid { clearPending() }
+    }
+
+    /// Keys typed while the canvas goes over to a new window (`slide(into:)`), for that window.
+    /// No window: the next one of the app's that's entered (⌘N's, not made yet when the keys came).
+    private var heldKeys: (windowID: CGWindowID?, pid: pid_t, events: [CGEvent])?
+    /// The longest keys are held: a slide that never lands (the user went elsewhere) lets them go.
+    static let keyHoldLimit: TimeInterval = 3
+
+    private func holdKeys(for p: WindowProxy) { holdKeys(window: p.windowID, pid: p.pid) }
+
+    private func holdKeys(window id: CGWindowID?, pid: pid_t, for limit: TimeInterval = CanvasController.keyHoldLimit) {
+        heldKeys = (id, pid, [])
+        holdKeysGeneration += 1
+        let generation = holdKeysGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + limit) { [weak self] in
+            MainActor.assumeIsolated {
+                if let self, self.heldKeys != nil, self.holdKeysGeneration == generation { self.dropHeldKeys() }
+            }
+        }
+    }
+
+    /// Which hold a drop timer belongs to: a second ⌘N's hold isn't let go by the first one's timer.
+    private var holdKeysGeneration = 0
+
+    private func dropHeldKeys() {
+        if let n = heldKeys?.events.count, n > 0 { NSLog("New window: \(n) key event(s) held for it dropped") }
+        heldKeys = nil
+    }
+
+    /// The canvas view's keys while some are held: kept, in order, not acted on.
+    private func holdKey(_ event: NSEvent) -> Bool {
+        guard heldKeys != nil, let e = event.cgEvent?.copy() else { return false }
+        heldKeys?.events.append(e)
+        return true
+    }
+
+    /// A window is entered: if keys were held for it, they go on to it once its app is in front;
+    /// held for another, they're dropped.
+    private func passOnHeldKeys(entering p: WindowProxy) {
+        guard let held = heldKeys else { return }
+        heldKeys = nil
+        guard held.windowID.map({ $0 == p.windowID }) ?? (held.pid == p.pid) else {
+            if !held.events.isEmpty { NSLog("New window: \(held.events.count) key event(s) held for it dropped") }
+            return
+        }
+        guard !held.events.isEmpty else { return }
+        NSLog("New window: \(held.events.count) key event(s) typed on the way passed on to \(p.appName)")
+        whenFrontmost(held.pid) {
+            for e in held.events {
+                e.setIntegerValueField(.eventSourceUserData, value: CanvasView.passedOnMark)
+                e.postToPid(held.pid)
+            }
+        }
+    }
+
+    // MARK: ⌘N inside a window
+
+    /// Whether each app's ⌘N made a window (`NewWindowMenu.commandNMakesWindow`) when last asked.
+    private var commandNMakesWindow: [pid_t: Bool] = [:]
+
+    /// Tells the key tap whether ⌘N in the window just entered is the canvas's (`newWindowBeside`). The
+    /// app's menu is read off the main thread each time; until the first answer ⌘N goes to the app as ever.
+    private func updateNewWindowKey(for pid: pid_t) {
+        guard let env else { return }
+        guard Settings.magnetism, !Settings.stripMode else { return env.keyTap.update(placesNewWindow: false) }
+        // What it was last time at once, then asked again: a menu can change (a sheet up disables New Window).
+        env.keyTap.update(placesNewWindow: commandNMakesWindow[pid] ?? false)
+        AXQueue.background.async { [weak self] in
+            let makes = NewWindowMenu.commandNMakesWindow(pid: pid)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let before = self.commandNMakesWindow.updateValue(makes, forKey: pid)
+                    if before != makes { NSLog("New window: pid \(pid)'s ⌘N \(makes ? "makes a window — the canvas places it" : "isn't a window's — left to the app")") }
+                    if self.activeProxy?.pid == pid { self.env?.keyTap.update(placesNewWindow: makes) }
+                }
+            }
+        }
+    }
+
+    /// ⌘N in a window whose app's ⌘N makes a window, with windows pushing each other (the key tap kept
+    /// the key for this): the canvas comes forward and goes to the free spot beside the window first,
+    /// and only then asks the app for the window, through that same ⌘N item. Made with the canvas in
+    /// front, the window is born behind it, pops in at the spot (`openingHere`) and is entered; keys
+    /// typed meanwhile are held for it. If none comes, it's back into the window it was asked from.
+    private func newWindowBeside() {
+        guard let a = activeProxy, placesNewWindows, a.kind == .window else { return passOnCommandN() }
+        let middle = spotBeside(a)
+        NSLog("New window: ⌘N in \(a.appName) — \(a.title); over to \(middle) first")
+        let pid = a.pid
+        holdKeys(window: nil, pid: pid)
+        let asked = CACurrentMediaTime()
+        pendingPlacement = { [weak self, weak a] in
+            guard let self else { return }
+            guard let a, CACurrentMediaTime() - asked < CanvasController.keyHoldLimit else { return self.dropHeldKeys() }
+            self.openBeside(a, at: middle)
+        }
+        show()
+    }
+
+    /// Whether the canvas places windows that open from inside a window itself (`newWindowBeside`,
+    /// `openFromWindow`): with windows pushing each other, and nothing else laying the canvas out.
+    private var placesNewWindows: Bool {
+        Settings.magnetism && !Settings.stripMode && restoring == nil && addingWidgets == nil && !handingOff
+    }
+
+    /// The free spot beside `a` for a window the size of `a` (a new window's size isn't known until it's
+    /// made: most apps make it the size of their last one): its middle, in the world.
+    private func spotBeside(_ a: WindowProxy) -> CGPoint {
+        let others = (view.proxies.filter { $0.kind == .window } + Array(away.values)).map(\.worldRect)
+        let gap = Tidy.Spacing.normal.points(gap: Settings.tileGap)
+        let spot = NewWindowSpot.spot(size: a.worldRect.size, avoiding: others, view: view.camera.toWorld(visibleTopLeft),
+                                      gap: gap, target: CGPoint(x: a.worldRect.midX, y: a.worldRect.midY))
+        return CGPoint(x: spot.midX, y: spot.midY)
+    }
+
+    /// The camera, at the zoom it has, with `middle` (world) in the middle of the visible area.
+    private func camera(centring middle: CGPoint) -> Camera {
+        var target = view.camera
+        let visible = visibleTopLeft
+        target.origin = CGPoint(x: middle.x - visible.midX / target.zoom, y: middle.y - visible.midY / target.zoom)
+        return target
+    }
+
+    /// Launching, or launched a moment ago: its first window may still be on its way.
+    private func isLaunching(_ app: NSRunningApplication) -> Bool {
+        !app.isFinishedLaunching || app.launchDate.map { Date().timeIntervalSince($0) < 2 } ?? true
+    }
+
+    /// Whether any window of the app is on this canvas, in view or away.
+    func hasWindows(of pid: pid_t) -> Bool {
+        (Array(proxies.values) + Array(away.values)).contains { $0.pid == pid && $0.kind == .window }
+    }
+
+    /// An app launched from inside a window, with no window yet (its Dock icon, Spotlight, Launchpad): one
+    /// is on its way. With windows pushing each other, the canvas comes forward first
+    /// and goes to the free spot beside the window it was in, so the app's window is made behind the canvas,
+    /// pops in there and is entered (`openingHere`), as ⌘N's is (`newWindowBeside`). None in a moment
+    /// (an app with nothing to show): back into the window it came from.
+    private func openFromWindow(_ app: NSRunningApplication, from: WindowProxy) {
+        let pid = app.processIdentifier
+        let middle = spotBeside(from)
+        let name = app.localizedName ?? from.appName
+        NSLog("New window: \(name) came forward from \(from.appName) with no window yet; over to \(middle) first")
+        holdKeys(window: nil, pid: pid, for: CanvasController.launchWait)
+        let known = Set((Array(proxies.values) + Array(away.values)).filter { $0.pid == pid }.map(\.windowID))
+        openingHere = OpenHere(name: name, bundleID: app.bundleIdentifier, pid: pid, spot: middle, enter: true, known: known,
+                               deadline: Date().addingTimeInterval(CanvasController.launchWait), returnTo: from)
+        // Its taking the front again as the window shows brings the canvas straight back (`foreignActivation`).
+        expectArrival(of: app, name: name)
+        let wait = isLaunching(app) ? CanvasController.launchWait : CanvasController.openHereNewWindowWait
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+            MainActor.assumeIsolated { self?.openHereFallback(pid: pid) }
+        }
+        let asked = CACurrentMediaTime()
+        pendingPlacement = { [weak self] in
+            guard let self, CACurrentMediaTime() - asked < CanvasController.launchWait,
+                  self.openingHere?.pid == pid, self.openingHere?.placedAt == nil else { return }
+            self.view.animateCamera(to: self.camera(centring: middle))
+        }
+        show()
+    }
+
+    /// The canvas is in front: the camera goes to `middle` (world), then the app is asked for its window.
+    private func openBeside(_ from: WindowProxy, at middle: CGPoint) {
+        let pid = from.pid
+        guard let running = NSRunningApplication(processIdentifier: pid), !running.isTerminated else { return dropHeldKeys() }
+        view.animateCamera(to: camera(centring: middle)) { [weak self] in
+            guard let self, NSApp.isActive, self.activeProxy == nil else { return self?.dropHeldKeys() ?? () }
+            let known = Set((Array(self.proxies.values) + Array(self.away.values)).filter { $0.pid == pid }.map(\.windowID))
+            self.openingHere = OpenHere(name: from.appName, bundleID: running.bundleIdentifier, pid: pid, spot: middle,
+                                        enter: true, known: known, deadline: Date().addingTimeInterval(CanvasController.launchWait),
+                                        returnTo: from)
+            AXQueue.interactive.async { [weak self] in
+                let pressed = NewWindowMenu.press(pid: pid, pick: NewWindowMenu.windowCommandN)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self, self.openingHere?.pid == pid, self.openingHere?.placedAt == nil else { return }
+                        guard pressed else { return self.openHereFallback(pid: pid) }
+                        self.expectArrival(of: running, name: from.appName)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + CanvasController.openHereNewWindowWait) { [weak self] in
+                            MainActor.assumeIsolated { self?.openHereFallback(pid: pid) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// ⌘N the key tap kept for the canvas, when the canvas can't do it after all: on to the app in front.
+    private func passOnCommandN() {
+        guard let pid = activeProxy?.pid ?? NSWorkspace.shared.frontmostApplication?.processIdentifier, pid != myPID else { return }
+        for down in [true, false] {
+            // 45: the N key.
+            guard let e = CGEvent(keyboardEventSource: nil, virtualKey: 45, keyDown: down) else { continue }
+            e.flags = .maskCommand
+            e.keyboardSetUnicodeString(stringLength: 1, unicodeString: [UniChar(("n" as Unicode.Scalar).value)])
+            e.setIntegerValueField(.eventSourceUserData, value: CanvasView.passedOnMark)
+            e.postToPid(pid)
+        }
+    }
+
     // MARK: Takeover — absorbing activations that happened outside the canvas
 
     func foreignActivation(_ app: NSRunningApplication) {
         let pid = app.processIdentifier
         guard pid != myPID else { return }   // our own: `returnedToCanvas` handles it
+        inFrontSinceListing.insert(pid)
         if pid == expectedActivationPID {
             expectedActivationPID = 0
             expectedActivationTimeout?.cancel()
@@ -4701,6 +5197,13 @@ final class CanvasController {
         // A click on the desktop while adding widgets activates Finder; that's part of editing them.
         // With setup up, the System Settings a step opened is meant to be in front.
         guard addingWidgets == nil, !isSetupShowing else { return }
+        // A window just closed from the canvas: its app (or the next one macOS picks) coming forward isn't
+        // the user going anywhere; the canvas stays as it was, camera and all.
+        if activeProxy == nil, Date() < quietAfterCloseUntil {
+            NSLog("Close: \(app.localizedName ?? "pid \(pid)") came forward after the close — the canvas stays")
+            show()
+            return
+        }
         // An app a layout restore opened, activating itself as it launches: its windows belong behind the
         // canvas, and the restore brings the canvas back in front.
         if let restoring, let id = app.bundleIdentifier, restoring.apps.contains(id) { return }
@@ -4762,6 +5265,14 @@ final class CanvasController {
         if onCanvas, known == nil, focused?.isFullScreen != true, mayHoldBehindCanvas(pid: pid, focused: focused) {
             keepOnCanvas(app)
             return
+        }
+        // From inside a window, an app launching, with no window yet and none on the canvas (one that does
+        // have some may just be slow to say which is focused): a window is on its way, and goes beside this
+        // one. A running app with no window is just brought forward: it's used from its menus (⌘O) as it is.
+        if !onCanvas, focused == nil, isLaunching(app), let from = lastActiveProxy, proxies[from.windowID] === from,
+           placesNewWindows, desk?.canvases.contains(where: { $0 !== self && $0.hasWindows(of: pid) }) != true,
+           !hasWindows(of: pid) {
+            return openFromWindow(app, from: from)
         }
         if let focused { absorb(window: focused) } else { waitForWindow(of: pid) }
     }
@@ -4847,6 +5358,7 @@ final class CanvasController {
         }
         stepDownForForeignApp()
         if let p = proxyReturning(id) {
+            if placeInFront(p, real: real, near: lastInView) { return clearPending() }
             adopt(p, ax: ax, real: real)
             return
         }
@@ -4865,6 +5377,7 @@ final class CanvasController {
             // The world may have moved on while we waited.
             guard stillFront(), let real = ax.frame else { return }
             self.view.set(camera: target)
+            if self.placeInFront(p, real: real, near: self.lastInView) { return }
             self.adopt(p, ax: ax, real: real)
         }
     }
@@ -4909,6 +5422,18 @@ final class CanvasController {
     }
 
     private func adoptSibling(_ p: WindowProxy, ax: AXWindow, real: CGRect) {
+        if placeInFront(p, real: real, near: activeProxy) { return }
+        // Still where `alignSiblings` put it, out of view (⌘` to it): its place on the canvas is the truth,
+        // and the canvas goes over to it there rather than taking it in off the edge of the screen.
+        let screen = toGlobal(visibleTopLeft)
+        let shown = screen.intersection(real)
+        let mostlyOff = shown.isNull || shown.width * shown.height < real.width * real.height / 2
+        if renderer == .realWindows, real.isClose(to: p.lastRealFrame), mostlyOff, placesNewWindows {
+            p.ax = ax
+            p.holdFrame()
+            NSLog("Absorb: sibling \(p.appName) — \(p.title) is off screen where the canvas has it — over to it")
+            return slide(into: p, onScreen: false)
+        }
         NSLog("Absorb: sibling \(p.appName) — \(p.title) at \(real.integral)")
         p.ax = ax
         let before = p.worldRect.origin
@@ -5044,6 +5569,7 @@ final class CanvasController {
         case .missionControl where NSApp.isActive: toggle()
         case .missionControl: showCanvas(fitAll: true)
         case .showDesktop: showDesktop()
+        case .newWindow: newWindowBeside()
         }
     }
 

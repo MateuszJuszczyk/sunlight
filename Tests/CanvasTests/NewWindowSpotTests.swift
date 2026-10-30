@@ -76,4 +76,48 @@ final class NewWindowSpotTests: XCTestCase {
     func testWithoutATargetItStillAimsAtTheMiddleOfTheView() {
         XCTAssertEqual(NewWindowSpot.spot(size: size, avoiding: [], view: view, gap: gap, target: nil), centred)
     }
+
+    // MARK: A place it already has (last run's)
+
+    func testAPlaceThatsStillFreeIsKept() {
+        let r = CGRect(x: -900, y: 40, width: 400, height: 300)
+        XCTAssertEqual(NewWindowSpot.free(r, avoiding: [CGRect(x: 0, y: 0, width: 400, height: 300)], gap: gap), r)
+    }
+
+    func testATakenPlaceGivesWayToTheNearestFreeOneInViewOrNot() {
+        let r = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let b = CGRect(x: 300, y: 100, width: 600, height: 600)
+        let moved = NewWindowSpot.free(r, avoiding: [b], gap: gap)
+        XCTAssertTrue(NewWindowSpot.isClear(moved, of: [b], gap: gap), "\(moved)")
+        // Left of the window that took it, level with where it was: the least way off.
+        XCTAssertEqual(moved, CGRect(x: -132, y: 0, width: 400, height: 300))
+    }
+
+    // MARK: Opened in front, from inside a window
+
+    private func inFront(_ window: CGRect, _ others: [CGRect], near: CGPoint) -> NewWindowSpot.InFront {
+        NewWindowSpot.inFront(window, avoiding: others, view: view, gap: gap, near: near)
+    }
+
+    func testOpenedClearOfEverythingItStays() {
+        let a = CGRect(x: 600, y: 0, width: 400, height: 300)
+        XCTAssertEqual(inFront(CGRect(x: 0, y: 0, width: 400, height: 300), [a], near: CGPoint(x: 800, y: 150)), .stay)
+    }
+
+    func testOpenedOverTheWindowInUseWithRoomOnScreenItMovesBesideIt() {
+        let a = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let result = inFront(CGRect(x: 40, y: 40, width: 400, height: 300), [a], near: CGPoint(x: a.midX, y: a.midY))
+        // Below it, level with its middle: the nearest room on screen.
+        XCTAssertEqual(result, .move(CGRect(x: 300, y: 832, width: 400, height: 300)))
+    }
+
+    func testOpenedOverAWindowFillingTheScreenTheViewGoesOverToTheNearestRoom() {
+        let a = CGRect(x: 0, y: 0, width: 2000, height: 1100)
+        let result = inFront(CGRect(x: 40, y: 40, width: 400, height: 300), [a], near: CGPoint(x: a.midX, y: a.midY))
+        guard case .slide(let r) = result else { return XCTFail("\(result)") }
+        XCTAssertTrue(NewWindowSpot.isClear(r, of: [a], gap: gap), "\(r)")
+        XCTAssertFalse(view.contains(r), "\(r)")
+        // Below it, where the least of it is off screen, under its middle.
+        XCTAssertEqual(r, CGRect(x: 800, y: 1132, width: 400, height: 300))
+    }
 }
