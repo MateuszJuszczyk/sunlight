@@ -39,16 +39,21 @@ final class CanvasView: NSView {
 
     /// Bring the window to the middle of the screen and enter it.
     var onHandoff: ((WindowProxy) -> Void)?
+    /// A centred click entrance, held on the canvas long enough to recognise a second click.
+    var onCenteredClick: ((WindowProxy, Bool) -> Void)?
     /// Zoomed in or out, a click on a window that didn't become a drag: enter it at 1:1 around the clicked
     /// spot (`at`: where it was pressed, view coordinates; `offset`: where in the window, world units).
-    var onClickEnter: ((_ proxy: WindowProxy, _ at: CGPoint, _ offset: CGPoint) -> Void)?
-    /// A window click waits for the system double-click interval before it can hand off.
+    var onClickEnter: ((_ proxy: WindowProxy, _ at: CGPoint, _ offset: CGPoint, _ double: Bool) -> Void)?
+    /// Remember the first click while its entrance runs, so a second can redirect it.
     private struct PendingWindowClick {
         let id: UUID
         let proxy: WindowProxy
+        let point: CGPoint
+        let offset: CGPoint
     }
     private var pendingWindowClick: PendingWindowClick?
     private weak var doubleClickProxy: WindowProxy?
+    private var previousWindowClickForDouble: PendingWindowClick?
     /// A press on a window at 1:1: enter it where it is and pass the press on to the real window, so it's
     /// used straight away, as on the desktop. `press` is the mouse-down.
     var onUse: ((_ proxy: WindowProxy, _ around: CGPoint, _ press: NSEvent) -> Void)?
@@ -2024,20 +2029,19 @@ final class CanvasView: NSView {
     private func performWindowClick(_ proxy: WindowProxy, at point: CGPoint, offset: CGPoint, double: Bool) {
         let center = (Settings.singleClickBehavior == .centerWindow) != double
         if center {
-            onHandoff?(proxy)
+            onCenteredClick?(proxy, double)
         } else {
-            onClickEnter?(proxy, point, offset)
+            onClickEnter?(proxy, point, offset, double)
         }
     }
 
-    private func deferWindowClick(_ proxy: WindowProxy, at point: CGPoint, offset: CGPoint) {
+    private func startWindowClick(_ proxy: WindowProxy, at point: CGPoint, offset: CGPoint) {
         let id = UUID()
-        pendingWindowClick = PendingWindowClick(id: id, proxy: proxy)
-        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval) { [weak self, weak proxy] in
-            guard let self, let proxy, self.pendingWindowClick?.id == id else { return }
+        pendingWindowClick = PendingWindowClick(id: id, proxy: proxy, point: point, offset: offset)
+        performWindowClick(proxy, at: point, offset: offset, double: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval) { [weak self] in
+            guard let self, self.pendingWindowClick?.id == id else { return }
             self.pendingWindowClick = nil
-            guard self.proxies.contains(where: { $0 === proxy }), self.window?.isVisible == true else { return }
-            self.performWindowClick(proxy, at: point, offset: offset, double: false)
         }
     }
 
@@ -2045,6 +2049,7 @@ final class CanvasView: NSView {
         let previousClick = pendingWindowClick
         pendingWindowClick = nil
         doubleClickProxy = nil
+        previousWindowClickForDouble = nil
         // ⌃-click is a right-click.
         if event.modifierFlags.contains(.control), let menu = menu(for: event) {
             NSMenu.popUpContextMenu(menu, with: event, for: self)
@@ -2057,6 +2062,17 @@ final class CanvasView: NSView {
         cancelAnimation()
         settleMagnet(now: true)   // the last drag's pushed windows go straight to their places
         floorPress = nil
+        // A double click belongs to the original window even if the first entrance has moved it
+        // away from the pointer, or another item is now underneath that point.
+        if event.clickCount >= 2, let first = previousClick, proxies.contains(where: { $0 === first.proxy }) {
+            let p = first.proxy
+            doubleClickProxy = p
+            previousWindowClickForDouble = first
+            dragging = Drag(proxy: p, grabOffset: first.offset, start: screenPoint, startRect: p.worldRect,
+                            members: members(of: p, includingAway: true).map { Member(proxy: $0, from: $0.worldRect) })
+            Haptics.Player.shared.begin()
+            return
+        }
         let ground = floorHit(at: worldPoint)
         floorFocused = ground.icon != nil
         if let icon = ground.icon {
@@ -2102,9 +2118,6 @@ final class CanvasView: NSView {
                 passingOn = true
                 onUse?(p, screenPoint, event)
                 return
-            }
-            if event.clickCount >= 2, p.kind == .window, previousClick?.proxy === p {
-                doubleClickProxy = p
             }
             // The press brings it to the front, with its group; a drag moves it.
             raise(p)
@@ -2297,13 +2310,15 @@ final class CanvasView: NSView {
                 onPress?(d.proxy, CGPoint(x: r.minX + d.grabOffset.x, y: r.minY + d.grabOffset.y))
             case .window:
                 if doubleClickProxy === d.proxy {
-                    performWindowClick(d.proxy, at: d.start, offset: d.grabOffset, double: true)
+                    let first = previousWindowClickForDouble
+                    performWindowClick(d.proxy, at: first?.point ?? d.start, offset: first?.offset ?? d.grabOffset, double: true)
                 } else {
-                    deferWindowClick(d.proxy, at: d.start, offset: d.grabOffset)
+                    startWindowClick(d.proxy, at: d.start, offset: d.grabOffset)
                 }
             }
         }
         doubleClickProxy = nil
+        previousWindowClickForDouble = nil
         dragging = nil
         if panning {
             panning = false
