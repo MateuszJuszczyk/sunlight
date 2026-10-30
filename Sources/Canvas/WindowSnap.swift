@@ -113,7 +113,7 @@ enum WindowSnap {
             let along = (horizontal ? dx : dy) * sign
             let across = abs(horizontal ? dy : dx)
             guard along > 1, along <= alongLimit, across <= acrossLimit else { continue }
-            let candidate = (along / alongLimit + across / acrossLimit, p.x, p.y)
+            let candidate: (CGFloat, CGFloat, CGFloat) = (along / alongLimit + across / acrossLimit, p.x, p.y)
             if let b = best, candidate >= (b.score, b.x, b.y) { continue }
             best = (i, candidate.0, p.x, p.y)
         }
