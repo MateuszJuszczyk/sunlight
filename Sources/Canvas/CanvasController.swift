@@ -203,6 +203,7 @@ final class CanvasController {
     /// Four-finger travel that arrived while the canvas was still coming to the front; applied in
     /// `returnedToCanvas` for the same reason.
     private var pendingPan: CGVector?
+    private var pendingPanEnded = false
     /// The four-finger drag under way began from a window, so the canvas is in front because of it.
     private var panBroughtCanvas = false
 
@@ -339,6 +340,9 @@ final class CanvasController {
         }
         view.onViewportChanged = { [weak self] in self?.scheduleCapturePass() }
         view.onSettle = { [weak self] in self?.snapToWindow() ?? false }
+        view.onFourFingerPanEnd = { [weak self] start, direction in
+            self?.snapToWindow(pan: (start, direction)) ?? false
+        }
         view.onHover = { [weak self] p in if let p { self?.prefetchAX(p) } }
         view.onMoved = { [weak self] p in
             p.tile = nil   // placed by hand
@@ -1323,6 +1327,7 @@ final class CanvasController {
             // A flick was a drag until this moment: the pan stops where it is, without coasting.
             if inFront, pendingPan == nil { view.trackpadPanCancelled() }
             pendingPan = nil
+            pendingPanEnded = false
             let fromWindow = panBroughtCanvas
             panBroughtCanvas = false
             guard addingWidgets == nil, !isSetupShowing else { return }   // the desktop is in edit mode; Done comes back
@@ -1335,6 +1340,7 @@ final class CanvasController {
         case .began:
             NSLog("Pan: four-finger drag\(inFront ? "" : ", bringing the canvas back")")
             pendingPan = nil
+            pendingPanEnded = false
             panBroughtCanvas = !inFront
             if !inFront {
                 pendingPan = .zero
@@ -1353,8 +1359,11 @@ final class CanvasController {
                 show()
             }
         case .ended:
-            if inFront, pendingPan == nil { view.trackpadPanEnded() }
-            pendingPan = nil
+            if pendingPan != nil {
+                pendingPanEnded = true
+            } else if inFront {
+                view.trackpadPanEnded()
+            }
             panBroughtCanvas = false
         }
     }
@@ -4139,10 +4148,9 @@ final class CanvasController {
         return origin
     }
 
-    /// The camera came to rest after the user moved it: nearly on a screen-sized window (near 1:1, its
-    /// edges nearly where they'd be on screen), it nudges the rest of the way on a quick spring and
-    /// enters it in the middle, as a double-click would (`WindowSnap`). True when it did.
-    private func snapToWindow() -> Bool {
+    /// On a four-finger release, step toward the neighbouring window before falling back to a
+    /// nearby snap. Other gestures keep their existing proximity-based selection.
+    private func snapToWindow(pan: (Camera, CGVector)? = nil) -> Bool {
         guard Settings.snapToWindows, !handingOff, NSApp.isActive, activeProxy == nil, switcher == nil,
               !isShowingDesktop, addingWidgets == nil, !isSetupShowing else { return false }
         let windows = view.proxies.filter { $0.kind == .window && $0.away == nil && !$0.leaving }
@@ -4156,7 +4164,11 @@ final class CanvasController {
             origin = CGPoint(x: (origin.x * scale).rounded() / scale, y: max(visible.minY, (origin.y * scale).rounded() / scale))
             return WindowSnap.Window(rect: p.worldRect, spot: origin)
         }
-        guard let hit = WindowSnap.target(camera: view.camera, viewSize: view.bounds.size, visible: visible, windows: spots) else {
+        let strength: WindowSnap.Strength = Settings.windowSnapStrength == .normal ? .normal : .strong
+        let neighbour = pan.flatMap { WindowSnap.neighbour(from: $0.0, viewSize: view.bounds.size,
+                                                           windows: spots, direction: $0.1) }
+        guard let hit = neighbour ?? WindowSnap.target(camera: view.camera, viewSize: view.bounds.size,
+                                                       visible: visible, windows: spots, strength: strength) else {
             return false
         }
         let p = windows[hit.index]
@@ -4543,6 +4555,10 @@ final class CanvasController {
         if let travel = pendingPan {
             pendingPan = nil
             view.trackpadPan(by: travel)
+            if pendingPanEnded {
+                pendingPanEnded = false
+                view.trackpadPanEnded()
+            }
         }
         if pendingShowDesktop {
             pendingShowDesktop = false

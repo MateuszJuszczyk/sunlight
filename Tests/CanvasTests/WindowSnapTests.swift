@@ -30,7 +30,7 @@ final class WindowSnapTests: XCTestCase {
         XCTAssertNil(WindowSnap.target(camera: out, viewSize: view, visible: visible, windows: [full]))
     }
 
-    func testSmallWindowsNeverSnap() {
+    func testNormalDoesNotSnapSmallWindows() {
         let small = WindowSnap.Window(rect: CGRect(x: 3000, y: 500, width: 900, height: 700), spot: CGPoint(x: 306, y: 157))
         let near = Camera(origin: CGPoint(x: 3000 - 300, y: 500 - 150), zoom: 1)
         XCTAssertNil(WindowSnap.target(camera: near, viewSize: view, visible: visible, windows: [small]))
@@ -40,6 +40,79 @@ final class WindowSnapTests: XCTestCase {
         let other = WindowSnap.Window(rect: CGRect(x: 3060, y: 500, width: 1512, height: 949), spot: CGPoint(x: 0, y: 33))
         let near = Camera(origin: CGPoint(x: 3050, y: 467), zoom: 1)
         XCTAssertEqual(WindowSnap.target(camera: near, viewSize: view, visible: visible, windows: [full, other])?.index, 1)
+    }
+
+    func testStrongSnapsSmallWindowWithinReach() {
+        let small = WindowSnap.Window(rect: CGRect(x: 3000, y: 500, width: 900, height: 700), spot: CGPoint(x: 306, y: 157))
+        let target = Camera(origin: CGPoint(x: 2694, y: 343), zoom: 1)
+        let near = Camera(origin: CGPoint(x: 2844, y: 343), zoom: 1)
+        XCTAssertNil(WindowSnap.target(camera: near, viewSize: view, visible: visible, windows: [small], strength: .normal))
+        XCTAssertEqual(WindowSnap.target(camera: near, viewSize: view, visible: visible, windows: [small], strength: .strong)?.camera, target)
+    }
+
+    func testStrongReachBoundaryAndDistantWindow() {
+        let size = CGSize(width: 1000, height: 1000)
+        let area = CGRect(origin: .zero, size: size)
+        let window = WindowSnap.Window(rect: CGRect(x: 0, y: 0, width: 1000, height: 1000), spot: .zero)
+        let edge = Camera(origin: CGPoint(x: 150, y: 0), zoom: 1)
+        let beyond = Camera(origin: CGPoint(x: 151, y: 0), zoom: 1)
+        XCTAssertNotNil(WindowSnap.target(camera: edge, viewSize: size, visible: area, windows: [window], strength: .strong))
+        XCTAssertNil(WindowSnap.target(camera: beyond, viewSize: size, visible: area, windows: [window], strength: .strong))
+        XCTAssertNil(WindowSnap.target(camera: edge, viewSize: size, visible: area, windows: [window], strength: .normal))
+    }
+
+    func testStrongDoesNotCaptureInvisibleWindowAndCanSnapFromOverview() {
+        let hidden = WindowSnap.Window(rect: CGRect(x: 3000, y: 500, width: 20, height: 20), spot: CGPoint(x: -100, y: 100))
+        let camera = Camera(origin: CGPoint(x: 3100, y: 400), zoom: 1)
+        XCTAssertNil(WindowSnap.target(camera: camera, viewSize: view, visible: visible, windows: [hidden], strength: .strong))
+        let out = Camera(center: aligned.center(viewSize: view), zoom: 0.5, viewSize: view)
+        XCTAssertEqual(WindowSnap.target(camera: out, viewSize: view, visible: visible, windows: [full], strength: .strong)?.camera, aligned)
+    }
+
+    func testStrongRejectsWorldDistantWindowWhenZoomedOut() {
+        let center = aligned.center(viewSize: view)
+        let nearOnScreen = Camera(center: CGPoint(x: center.x + 300, y: center.y), zoom: 0.25, viewSize: view)
+        XCTAssertNil(WindowSnap.target(camera: nearOnScreen, viewSize: view, visible: visible, windows: [full], strength: .strong))
+    }
+
+    func testEqualDistanceUsesGeometryRatherThanInputOrder() {
+        let other = WindowSnap.Window(rect: CGRect(x: 3060, y: 500, width: 1512, height: 949), spot: CGPoint(x: 0, y: 33))
+        let middle = Camera(origin: CGPoint(x: 3030, y: 467), zoom: 1)
+        let first = WindowSnap.target(camera: middle, viewSize: view, visible: visible, windows: [full, other], strength: .strong)
+        let reversed = WindowSnap.target(camera: middle, viewSize: view, visible: visible, windows: [other, full], strength: .strong)
+        XCTAssertEqual(first?.camera, aligned)
+        XCTAssertEqual(reversed?.camera, aligned)
+    }
+
+    func testPanSelectsNeighbourInCameraTravelDirection() {
+        let left = WindowSnap.Window(rect: full.rect.offsetBy(dx: -900, dy: 0), spot: full.spot)
+        let right = WindowSnap.Window(rect: full.rect.offsetBy(dx: 900, dy: 0), spot: full.spot)
+        let fartherRight = WindowSnap.Window(rect: full.rect.offsetBy(dx: 1800, dy: 0), spot: full.spot)
+        let windows = [fartherRight, left, full, right]
+        XCTAssertEqual(WindowSnap.neighbour(from: aligned, viewSize: view, windows: windows,
+                                            direction: CGVector(dx: 100, dy: 0))?.index, 3)
+        XCTAssertEqual(WindowSnap.neighbour(from: aligned, viewSize: view, windows: windows,
+                                            direction: CGVector(dx: -100, dy: 0))?.index, 1)
+    }
+
+    func testPanDoesNotSelectDistantOrWrongDirectionWindow() {
+        let far = WindowSnap.Window(rect: full.rect.offsetBy(dx: 2500, dy: 0), spot: full.spot)
+        let left = WindowSnap.Window(rect: full.rect.offsetBy(dx: -500, dy: 0), spot: full.spot)
+        XCTAssertNil(WindowSnap.neighbour(from: aligned, viewSize: view, windows: [full, far, left],
+                                          direction: CGVector(dx: 100, dy: 0)))
+        XCTAssertNil(WindowSnap.neighbour(from: aligned, viewSize: view, windows: [full, left],
+                                          direction: CGVector(dx: -5, dy: 0)))
+    }
+
+    func testPanSelectsVerticalNeighbourWithoutReordering() {
+        let below = WindowSnap.Window(rect: full.rect.offsetBy(dx: 0, dy: 700), spot: full.spot)
+        let right = WindowSnap.Window(rect: full.rect.offsetBy(dx: 700, dy: 0), spot: full.spot)
+        let windows = [right, below, full]
+        XCTAssertEqual(WindowSnap.neighbour(from: aligned, viewSize: view, windows: windows,
+                                            direction: CGVector(dx: 10, dy: 100))?.index, 1)
+        XCTAssertEqual(WindowSnap.neighbour(from: aligned, viewSize: view, windows: Array(windows.reversed()),
+                                            direction: CGVector(dx: 10, dy: 100))?.camera,
+                       Camera(origin: CGPoint(x: 3000, y: 1167), zoom: 1))
     }
 
     func testNudgeSpringIsQuickWithLittleOvershoot() {

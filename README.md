@@ -45,8 +45,8 @@ Desktop all land on it. So it's still your Mac. It just has room now.
   even over a window.
 - 🪟 **Real windows, not screenshots.** With live windows on, the canvas shows the actual windows, scaled
   in place by a small add-on in the Dock. At 1:1 you can click, type and scroll in them right there.
-- 🎯 **Seamless handoff.** Click a window to step into it where it is; double-click to bring it to the
-  middle. The Mission Control key (F3) or a four-finger tap takes you back out, and again takes you back in.
+- 🎯 **Seamless handoff.** Click a window to centre and enter it; double-click to enter at the clicked
+  position. The Mission Control key (F3) or a four-finger tap takes you back out, and again takes you back in.
 - 🧲 **Neat without trying.** Windows snap to guides and a grid as you drag, resize from their edges, and
   can shove each other out of the way if you want them to (Settings › Windows).
 - ⌨️ **Move & Resize keys.** ⌃⌥ + arrows for halves, plus quarters, thirds, two-thirds, full screen and
@@ -73,7 +73,7 @@ Desktop all land on it. So it's still your Mac. It just has room now.
 |---|---|---|
 | Zoom | pinch | ⌥ or ⌘ + scroll |
 | Pan | two-finger scroll, or four-finger drag from anywhere | |
-| Go into a window | click it (double-click to centre it), or pinch in over it | ⏎ over it |
+| Go into a window | click to centre it (double-click to enter at the clicked position), or pinch in over it | ⏎ over it |
 | Use a window at 1:1 | just click, type and scroll, as on the desktop | |
 | See everything, and back in | four-finger tap | Mission Control key (F3) |
 | Show Desktop | four-finger spread (thumb and three fingers) | F11 |

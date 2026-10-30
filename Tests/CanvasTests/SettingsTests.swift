@@ -33,4 +33,51 @@ final class SettingsTests: XCTestCase {
             XCTAssertEqual(Settings.switcherEdge, .bottom)
         }
     }
+
+    func testNavigationPreferencesDefaultAndRoundTrip() async {
+        await MainActor.run {
+            let defaults = UserDefaults.standard
+            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior",
+                        "windowSnapStrength", "cameraPanSensitivity"]
+            let saved = keys.map { defaults.object(forKey: $0) }
+            defer {
+                for (key, value) in zip(keys, saved) {
+                    if let value { defaults.set(value, forKey: key) }
+                    else { defaults.removeObject(forKey: key) }
+                }
+            }
+            keys.forEach { defaults.removeObject(forKey: $0) }
+            XCTAssertTrue(Settings.autoCenterAfterFourFingerPan)
+            XCTAssertEqual(Settings.singleClickBehavior, .centerWindow)
+            XCTAssertEqual(Settings.windowSnapStrength, .strong)
+            XCTAssertEqual(Settings.cameraPanSensitivity, .high)
+            XCTAssertEqual(Settings.cameraPanSensitivity.multiplier, 1.35)
+            XCTAssertEqual(Settings.CameraPanSensitivity.normal.multiplier, 1)
+            XCTAssertEqual(Settings.CameraPanSensitivity.veryHigh.multiplier, 1.6)
+
+            Settings.autoCenterAfterFourFingerPan = false
+            XCTAssertFalse(Settings.autoCenterAfterFourFingerPan)
+            for behavior in Settings.SingleClickBehavior.allCases {
+                Settings.singleClickBehavior = behavior
+                XCTAssertEqual(defaults.string(forKey: "singleClickBehavior"), behavior.rawValue)
+                XCTAssertEqual(Settings.singleClickBehavior, behavior)
+            }
+            for strength in Settings.WindowSnapStrength.allCases {
+                Settings.windowSnapStrength = strength
+                XCTAssertEqual(defaults.string(forKey: "windowSnapStrength"), strength.rawValue)
+                XCTAssertEqual(Settings.windowSnapStrength, strength)
+            }
+            for sensitivity in Settings.CameraPanSensitivity.allCases {
+                Settings.cameraPanSensitivity = sensitivity
+                XCTAssertEqual(defaults.string(forKey: "cameraPanSensitivity"), sensitivity.rawValue)
+                XCTAssertEqual(Settings.cameraPanSensitivity, sensitivity)
+            }
+            defaults.set("invalid", forKey: "singleClickBehavior")
+            defaults.set("invalid", forKey: "windowSnapStrength")
+            defaults.set("invalid", forKey: "cameraPanSensitivity")
+            XCTAssertEqual(Settings.singleClickBehavior, .centerWindow)
+            XCTAssertEqual(Settings.windowSnapStrength, .strong)
+            XCTAssertEqual(Settings.cameraPanSensitivity, .high)
+        }
+    }
 }

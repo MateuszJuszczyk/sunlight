@@ -74,6 +74,10 @@ enum Settings {
     private static let seeAllGestureKey = "CanvasSeeAllGesture"
     private static let zoomInertiaKey = "CanvasZoomInertia"
     private static let snapToWindowsKey = "CanvasSnapToWindows"
+    private static let autoCenterAfterFourFingerPanKey = "autoCenterAfterFourFingerPan"
+    private static let singleClickBehaviorKey = "singleClickBehavior"
+    private static let windowSnapStrengthKey = "windowSnapStrength"
+    private static let cameraPanSensitivityKey = "cameraPanSensitivity"
     private static let rememberCanvasKey = "CanvasRemember"
     private static let otherWindowsKey = "CanvasOtherWindowsOnRestore"
     private static let switcherEdgeKey = "SwitcherEdge"
@@ -268,6 +272,58 @@ enum Settings {
             defaults.set(newValue.rawValue, forKey: seeAllGestureKey)
             NotificationCenter.default.post(name: seeAllGestureDidChange, object: nil)
         }
+    }
+
+    enum CameraPanSensitivity: String, CaseIterable {
+        case normal, high, veryHigh
+
+        var title: String {
+            switch self {
+            case .normal: return "Normal"
+            case .high: return "High"
+            case .veryHigh: return "Very High"
+            }
+        }
+
+        var multiplier: CGFloat {
+            switch self {
+            case .normal: return 1
+            case .high: return 1.35
+            case .veryHigh: return 1.6
+            }
+        }
+    }
+
+    static var cameraPanSensitivity: CameraPanSensitivity {
+        get { defaults.string(forKey: cameraPanSensitivityKey).flatMap(CameraPanSensitivity.init(rawValue:)) ?? .high }
+        set { defaults.set(newValue.rawValue, forKey: cameraPanSensitivityKey) }
+    }
+
+    static var autoCenterAfterFourFingerPan: Bool {
+        get { defaults.object(forKey: autoCenterAfterFourFingerPanKey) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: autoCenterAfterFourFingerPanKey) }
+    }
+
+    enum SingleClickBehavior: String, CaseIterable {
+        case centerWindow, enterAtClickPosition
+
+        var title: String { self == .centerWindow ? "Center window" : "Enter at click position" }
+    }
+
+    static var singleClickBehavior: SingleClickBehavior {
+        get { defaults.string(forKey: singleClickBehaviorKey).flatMap(SingleClickBehavior.init(rawValue:)) ?? .centerWindow }
+        set { defaults.set(newValue.rawValue, forKey: singleClickBehaviorKey) }
+    }
+
+    enum WindowSnapStrength: String, CaseIterable {
+        case strong, normal
+
+        var title: String { self == .strong ? "Strong" : "Normal" }
+    }
+
+    static var windowSnapStrength: WindowSnapStrength {
+        get { defaults.string(forKey: windowSnapStrengthKey).flatMap(WindowSnapStrength.init(rawValue:)) ?? .strong }
+        set { defaults.set(newValue.rawValue, forKey: windowSnapStrengthKey) }
     }
 
     // MARK: Inertia
@@ -1143,6 +1199,16 @@ private struct CanvasPane: View {
     var body: some View {
         Form {
             Section {
+                Picker("Camera pan sensitivity", selection: model.bind({ Settings.cameraPanSensitivity }, { Settings.cameraPanSensitivity = $0 })) {
+                    ForEach(Settings.CameraPanSensitivity.allCases, id: \.self) { Text($0.title) }
+                }
+                Toggle(isOn: model.bind({ Settings.autoCenterAfterFourFingerPan }, { Settings.autoCenterAfterFourFingerPan = $0 })) {
+                    RowLabel(title: "Center after four-finger pan",
+                             subtitle: "Center on a nearby window after the pan comes to rest.")
+                }
+                Picker("Single-click window", selection: model.bind({ Settings.singleClickBehavior }, { Settings.singleClickBehavior = $0 })) {
+                    ForEach(Settings.SingleClickBehavior.allCases, id: \.self) { Text($0.title) }
+                }
                 Toggle(isOn: model.bind({ Settings.panInertia }, { Settings.panInertia = $0 })) {
                     RowLabel(title: "Inertia when panning",
                              subtitle: "A four-finger or scroll pan keeps gliding for a moment after the fingers lift.")
@@ -1152,9 +1218,13 @@ private struct CanvasPane: View {
                              subtitle: "A pinch tails off for a moment after the fingers lift.")
                 }
                 Toggle(isOn: model.bind({ Settings.snapToWindows }, { Settings.snapToWindows = $0 })) {
-                    RowLabel(title: "Snap to full screen windows",
-                             subtitle: "Stopping almost exactly on a screen-sized window nudges the canvas onto it and enters it.")
+                    RowLabel(title: "Snap to windows",
+                             subtitle: "Stopping near a window nudges the canvas onto it and enters it.")
                 }
+                Picker("Window snap strength", selection: model.bind({ Settings.windowSnapStrength }, { Settings.windowSnapStrength = $0 })) {
+                    ForEach(Settings.WindowSnapStrength.allCases, id: \.self) { Text($0.title) }
+                }
+                .disabled(!Settings.snapToWindows)
             } header: {
                 SectionHeader(title: "Moving around",
                               detail: "Inertia is off while Reduce Motion is on in System Settings › Accessibility.")
