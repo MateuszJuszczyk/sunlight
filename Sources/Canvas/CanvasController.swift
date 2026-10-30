@@ -4165,8 +4165,9 @@ final class CanvasController {
             return WindowSnap.Window(rect: p.worldRect, spot: origin)
         }
         let strength: WindowSnap.Strength = Settings.windowSnapStrength == .normal ? .normal : .strong
+        let preferred = lastActiveProxy.flatMap { active in windows.firstIndex { $0 === active } }
         let neighbour = pan.flatMap { WindowSnap.neighbour(from: $0.0, viewSize: view.bounds.size,
-                                                           windows: spots, direction: $0.1) }
+                                                           windows: spots, direction: $0.1, preferredIndex: preferred) }
         guard let hit = neighbour ?? WindowSnap.target(camera: view.camera, viewSize: view.bounds.size,
                                                        visible: visible, windows: spots, strength: strength) else {
             return false
