@@ -13,7 +13,7 @@
 
 // Bump whenever the add-on changes: the helper reinstalls it (restarting the Dock) only when the
 // installed version differs, and reports a Dock still running an older one.
-#define OSAX_VERSION "sunlight-14"
+#define OSAX_VERSION "sunlight-41"
 
 // The stock opcodes kept from yabai, with yabai's encoding. Every other stock opcode is ignored.
 enum sa_opcode
@@ -21,6 +21,7 @@ enum sa_opcode
     SA_OPCODE_VERSION      = 0x01,   // no fields; answers OSAX_VERSION and a newline
     SA_OPCODE_WINDOW_MOVE  = 0x06,   // uint32 wid, int32 x, int32 y
     SA_OPCODE_WINDOW_ORDER = 0x10,   // uint32 wid, int32 order (-1, 0, 1), uint32 relative wid
+    SA_OPCODE_WINDOW_LEVEL = 0x12,   // uint32 wid, int32 level (Sunlight's own: a window lifted above the canvas at once)
 };
 
 #endif

@@ -41,17 +41,75 @@ final class WindowProxy {
         }
     }
     var onGeometryChanged: (() -> Void)?
-    /// While it arrives on the canvas (`CanvasView.Entrance`): drawn `entranceScale` times its size about
-    /// its centre, texture and label at `entranceOpacity`. The real-window renderer folds the scale into
-    /// the window's transform instead (`LiveWindowsWire.Window`).
-    private(set) var entranceScale: CGFloat = 1
-    private(set) var entranceOpacity: Float = 1
+    /// While it opens onto the canvas or leaves it (`CanvasView.Entrance`, `WindowEffect`): drawn scaled
+    /// and moved as the frame says, texture and label at its opacity. The real-window renderer folds the
+    /// geometry into the window's transform instead (`LiveWindowsWire.Window`), and sends the opacity as
+    /// the window's alpha where the add-on takes it (sunlight-40).
+    private(set) var effect = WindowEffect.Frame.identity
+    /// The zoom the effect's offset (screen points) was turned into world units at.
+    private var effectZoom: CGFloat = 1
+    /// Leaving the canvas through a close effect: held at its last frame until the listing drops it.
+    var closing = false
 
     /// Where the window lives on the canvas (top-left world coords, points). A widget's is its card.
     /// The layers follow it on their own; nothing else has to remember to lay out after a move.
-    var worldRect: CGRect {
-        didSet { if worldRect != oldValue { layout(zoom: lastZoom); onGeometryChanged?() } }
+    ///
+    /// Written only here: the canvas places it (`place`), or the user moved the real window and the
+    /// canvas follows (`movedByUser`). Everything else reads it.
+    private(set) var worldRect: CGRect {
+        didSet {
+            guard worldRect != oldValue else { return }
+            layout(zoom: lastZoom)
+            onGeometryChanged?()
+            // The windows attached to this one ride with it, each at its offset.
+            if worldRect.origin != oldValue.origin {
+                for c in attachedChildren { c.place(at: CGPoint(x: worldRect.minX + c.attachmentOffset.x, y: worldRect.minY + c.attachmentOffset.y)) }
+            }
+        }
     }
+
+    /// Whose position this is (`PositionOwner`): the canvas's, until its app comes to the front and
+    /// the user may move the window by hand; the canvas's again once it has read the window back.
+    /// Placing the window on the canvas makes it the canvas's: wherever the canvas puts a window is
+    /// where it is, whoever was in front.
+    var owner: PositionOwner = .canvas
+
+    /// Held back from the live frames (sunlight-27): a window just opened, on its way to being entered
+    /// at its spot, stays under the canvas until the pan lands and the seam lifts it, rather than
+    /// showing at its spot the moment the canvas comes forward.
+    var heldBack = false
+
+    /// The canvas puts the window at `origin` (world): a drag, a drop, a placement, a layout, an
+    /// animation's step. Its size stays.
+    func place(at origin: CGPoint) {
+        owner = .canvas
+        worldRect.origin = origin
+    }
+
+    /// The canvas gives the window a rect (a resize on the canvas, with the edges that moved).
+    func place(_ rect: CGRect) {
+        owner = .canvas
+        worldRect = rect
+    }
+
+    /// The display moved in the arrangement: the window's place and its native frame move with it, so
+    /// nothing changes on screen.
+    func shift(by dx: CGFloat, _ dy: CGFloat) {
+        worldRect = worldRect.offsetBy(dx: dx, dy: dy)
+        lastRealFrame = lastRealFrame.offsetBy(dx: dx, dy: dy)
+    }
+    /// The window this one hangs from, if it's a sheet, alert, prompt or other window that opened
+    /// over a window of its app and belongs to it (see `CanvasController.attach`). An attached window
+    /// has no place of its own on the canvas: it sits at `attachmentOffset` from its parent, moves
+    /// with it, and is left out of placement, tidying, magnetism, layouts and the switcher. A press
+    /// on it is a press on its parent.
+    var attachedTo: CGWindowID?
+    /// Where this window sits relative to its parent's top-left, in points.
+    var attachmentOffset: CGPoint = .zero
+    /// The windows attached to this one (kept so a move carries them along).
+    var attachedChildren: [WindowProxy] = []
+    /// An app window with a place of its own on the canvas: not a widget, not attached to another.
+    var standsAlone: Bool { kind == .window && attachedTo == nil }
     /// Why a window is off the canvas while keeping its place there (see `CanvasController.away`).
     enum Away {
         /// Its app is hidden (⌘H): the app's unhiding brings it back.
@@ -66,9 +124,10 @@ final class WindowProxy {
     /// The slot the window was last tiled to, and the area it's in; cleared when it's dragged or resized
     /// by hand. Entering a tiled window lines the camera up with its area.
     var tile: Tiling.Tile?
-    /// The real window's frame the last time we looked (top-left screen coords).
-    /// If it changes behind our back, the user moved the real window, and the canvas follows.
-    var lastRealFrame: CGRect
+    /// The real window's frame the last time we looked (top-left global screen coords): what the
+    /// listing compares its frame against. Written only here, from a native frame the controller read
+    /// (`placedNatively`, `movedByUser`) or a size it asked for (`resized`, `noteResize`).
+    private(set) var lastRealFrame: CGRect
     var ax: AXWindow?
     /// The widget in Notification Center's Accessibility tree; nil for a window, or without Accessibility.
     var widget: AXWidget?
@@ -164,9 +223,12 @@ final class WindowProxy {
     private var lastZoom: CGFloat = 1
     /// The size the shadow path was last built for; a path is only rebuilt when the size changes.
     private var shadowSize: CGSize = .zero
-    /// Until then, a real frame that differs from `lastRealFrame` is ScreenCaptureKit catching up with a
-    /// resize of ours, not the user moving the window (see `resized(toReal:)`).
-    private(set) var holdFrameUntil = Date.distantPast
+    /// Until then, a size in the window list that differs from `lastRealFrame` is the list catching up
+    /// with a resize of ours, not a size to take (see `resized(toReal:)`). Positions are never held:
+    /// the owner decides those (`PositionOwner`).
+    private var sizeHeldUntil = Date.distantPast
+    /// A resize of ours is still settling: the listing's size for this window is stale.
+    var sizeHeld: Bool { Date() < sizeHeldUntil }
 
     /// True while the window's pixels arrive as a stream. Off whenever the real window may be in front
     /// of the canvas, where the stream's capture pill would show on it.
@@ -587,27 +649,38 @@ final class WindowProxy {
 
     // MARK: Geometry
 
-    /// Reconciles with the real window: if its real frame changed since we last looked, the user moved it,
-    /// and the canvas position follows. `force` re-anchors even if nothing moved (used when returning to
-    /// the canvas, so proxy and real window agree no matter what). Returns true if the position changed.
-    @discardableResult
-    func reconcile(title newTitle: String?, realFrame: CGRect, camera: Camera, force: Bool = false) -> Bool {
-        if let newTitle, newTitle != title {
-            title = newTitle
-            refreshLabel()
-        }
-        guard force || !realFrame.isClose(to: lastRealFrame) else { return false }
-        guard force || Date() >= holdFrameUntil else { return false }
-        lastRealFrame = realFrame
-        worldRect = WindowProxy.worldRect(forReal: realFrame, inset: inset, camera: camera)
-        crop(toRealSize: realFrame.size)
-        capture?.set(realSize: realFrame.size)
-        return true
+    /// The window's name as the window server has it now.
+    func retitle(_ newTitle: String?) {
+        guard let newTitle, newTitle != title else { return }
+        title = newTitle
+        refreshLabel()
+    }
+
+    /// The user moved (or resized) the real window: wherever it is now, seen through `camera`, is where
+    /// it lives on the canvas. `camera` is the one the window was placed at, from the snapshot the frame
+    /// was read in (`FrameSnapshot`), so a frame is never paired with a camera that has moved on.
+    func movedByUser(to native: CGRect, seenThrough camera: Camera) {
+        lastRealFrame = native
+        worldRect = WindowProxy.worldRect(forReal: native, inset: inset, camera: camera)
+        crop(toRealSize: native.size)
+        capture?.set(realSize: native.size)
+    }
+
+    /// The real window is at `native`, put there by the canvas (the seam, a kept window, a sibling
+    /// lined up) or by macOS (a menu-bar clamp): its place on the canvas stands. The frame is remembered
+    /// as is, so the listing sees no move, and a new size is taken where the window is anchored.
+    func placedNatively(at native: CGRect) {
+        lastRealFrame = native
+        let size = native.insetBy(dx: inset, dy: inset).size
+        guard size != worldRect.size, size.width > 0, size.height > 0 else { return }
+        worldRect.size = size
+        crop(toRealSize: native.size)
+        capture?.set(realSize: native.size)
     }
 
     /// The real window was just resized behind the canvas (a layout restore): the proxy takes the new size
-    /// where it is on the canvas. ScreenCaptureKit reports the new frame a beat late, and until it does its
-    /// stale one would read as the user moving the window, so `reconcile` ignores frame changes meanwhile.
+    /// where it is on the canvas. The window list reports the new frame a beat late, and until it does its
+    /// stale size would read as a new one to take, so the listing ignores sizes meanwhile (`sizeHeld`).
     /// `anchor` is the corner of the proxy that stays put (a unit point, see `Resizing.anchor`): the
     /// top-left for a restore, the corner opposite the grabbed edges for a resize on the canvas.
     func resized(toReal frame: CGRect, anchor: CGPoint = .zero) {
@@ -625,11 +698,14 @@ final class WindowProxy {
         capture?.set(realSize: frame.size)
     }
 
-    /// A resize of ours is about to reach the real window: until it's been read back, a new size in the
-    /// window list is that resize, not the user moving the window.
-    func holdFrame() {
-        holdFrameUntil = Date().addingTimeInterval(1.5)
+    /// A resize of ours has reached the real window: until the window list has caught up with it, a
+    /// different size there is the old one, not a new one to take.
+    private func holdFrame() {
+        sizeHeldUntil = Date().addingTimeInterval(WindowProxy.sizeSettling)
     }
+
+    /// How long the window list may lag the app's answer to a resize.
+    nonisolated static let sizeSettling: TimeInterval = 1.5
 
     /// World rect for a real window seen through a camera. Only the origin is seen through the camera:
     /// world units are points at 1:1, so the size is the real size no matter how far out we are zoomed.
@@ -694,7 +770,7 @@ final class WindowProxy {
                                       cornerHeight: cornerRadius,
                                       transform: nil)
         }
-        if entranceScale != 1 { applyEntrance() }   // the centre it scales about moved
+        if !effect.keepsGeometry { applyEffect() }   // the point it scales about moved
     }
 
     /// Far off screen at a zoom change, the chrome is left as it is and hidden (a label counter-scaled
@@ -725,7 +801,7 @@ final class WindowProxy {
         label.position = CGPoint(x: r.minX, y: r.maxY + 6 / zoom)
         label.transform = CATransform3DMakeScale(1 / zoom, 1 / zoom, 1)
         let labelShown: Float = zoom < 0.85 ? 1 : 0
-        let labelOpacity = labelShown * entranceOpacity
+        let labelOpacity = labelShown * effect.opacity
         if label.opacity != labelOpacity { label.opacity = labelOpacity }
         if labelShown > 0 {
             // The bitmap is cropped to the window's width on screen; 8 pt steps keep the crop from
@@ -742,27 +818,32 @@ final class WindowProxy {
         showControls(animated: false)
     }
 
-    /// One frame of the window's arrival (see `CanvasView.Entrance`); `(1, 1)` is the window as usual.
-    func setEntrance(scale: CGFloat, opacity: Float) {
-        entranceScale = scale
-        entranceOpacity = opacity
-        applyEntrance()
-        label.opacity = (lastZoom < 0.85 ? 1 : 0) * opacity
+    /// One frame of the window's opening or closing (see `WindowEffect`); `.identity` is the window as usual.
+    func setEffect(_ frame: WindowEffect.Frame, zoom: CGFloat) {
+        effect = frame
+        effectZoom = zoom
+        applyEffect()
+        label.opacity = (lastZoom < 0.85 ? 1 : 0) * frame.opacity
     }
 
-    /// The layer's anchor is its bottom-left corner, so a scale about the centre is a scale and a shift
-    /// of half the size lost. The shadow path is in layer units and scales along.
-    private func applyEntrance() {
-        let s = entranceScale
-        if s == 1 {
+    /// The layer's anchor is its bottom-left corner and its space is y-up, so a scale about the frame's
+    /// anchor is a scale and a shift of the part of the size lost on that side, then the frame's own
+    /// move. The shadow path is in layer units and scales along.
+    private func applyEffect() {
+        let f = effect
+        if f.keepsGeometry {
             layer.transform = CATransform3DIdentity
         } else {
             let size = layer.bounds.size
-            var t = CATransform3DMakeTranslation(size.width * (1 - s) / 2, size.height * (1 - s) / 2, 0)
-            t = CATransform3DScale(t, s, s, 1)   // scale first, then translate — as `Camera.layerTransform`
+            let sx = f.scale.width, sy = f.scale.height
+            let zoom = max(effectZoom, 0.001)
+            let tx = size.width * f.anchor.x * (1 - sx) + f.offset.dx / zoom
+            let ty = size.height * (1 - f.anchor.y) * (1 - sy) - f.offset.dy / zoom
+            var t = CATransform3DMakeTranslation(tx, ty, 0)
+            t = CATransform3DScale(t, sx, sy, 1)   // scale first, then translate — as `Camera.layerTransform`
             layer.transform = t
         }
-        layer.opacity = entranceOpacity
+        layer.opacity = f.opacity
     }
 
     /// The ink and the shadow the canvas wants for every label (`CanvasView.applyInk`).

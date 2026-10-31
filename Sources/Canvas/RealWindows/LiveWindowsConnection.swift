@@ -12,11 +12,12 @@ enum LiveWindowsWire {
     static let frame: UInt8 = 0x72
     static let handoff: UInt8 = 0x73
     static let shadow: UInt8 = 0x74
+    static let alpha: UInt8 = 0x75
     static let magic = Data("SUNBEAM1\n".utf8)
     static let maxWindows = 128
     /// The add-on this build carries (LiveWindows/osax/common.h). An older one in the Dock still works,
     /// with what it has; the app asks to reload it once it answers.
-    static let additionVersion = "sunlight-14"
+    static let additionVersion = "sunlight-41"
     /// The first add-on that holds a lease per canvas, so that every display's canvas can show live
     /// windows; with an older one only the main display's does, and the others show pictures.
     static let leasePerCanvas = 13
@@ -50,6 +51,23 @@ enum LiveWindowsWire {
     /// than on top of the canvas at full size, and takes in an empty frame the app that has the front
     /// (`snapshot(_:backdrop:overlay:kind:above:)`) to come down under its windows; sunlight-11 and up.
     static func liftsCanvasInDock(_ version: String?) -> Bool { additionNumber(version) >= 11 }
+    /// Whether an add-on of this version sets a leased window's alpha (`alpha(_:)`), and puts it back
+    /// whenever it gives the window back; sunlight-40 and up. Earlier ones open and close windows with
+    /// their geometry and the canvas's veil alone.
+    static func alphaInDock(_ version: String?) -> Bool { additionNumber(version) >= 40 }
+
+    /// The alpha of leased windows, each 0...1 (sunlight-40): a count, then the window and its alpha
+    /// for each. Windows the lease doesn't hold are passed over.
+    static func alpha(_ windows: [(CGWindowID, Float)]) -> Data {
+        var data = Data()
+        let some = windows.prefix(maxWindows)
+        data.append(UInt8(some.count))
+        for (id, value) in some {
+            pack(id, into: &data)
+            pack(max(0, min(1, value.isFinite ? value : 1)), into: &data)
+        }
+        return message(alpha, data)
+    }
 
     /// What a frame says about the windows it leaves out (sunlight-8). `legacy` carries no flags byte,
     /// for an older add-on: every frame is the whole set.
@@ -81,6 +99,20 @@ enum LiveWindowsWire {
         return message(0x06, data)
     }
 
+    /// A window's level, set at once by the add-on (sunlight-27): `canvasLevel` is the canvas's, `frontLevel`
+    /// that of the windows on show above it while the canvas is away.
+    static let canvasLevel: Int32 = 1
+    static let frontLevel: Int32 = 2
+    static func level(_ id: CGWindowID, _ level: Int32) -> Data {
+        var data = Data(); pack(id, into: &data); pack(level, into: &data)
+        return message(0x12, data)
+    }
+
+    /// Whether the add-on keeps every window's native place under the menu bar and draws it where the
+    /// canvas has it from there (sunlight-28): the handoff then carries the visible top, and the canvas
+    /// expects the clamped native place for every window, not only the entered one.
+    static func clampsNatively(_ version: String?) -> Bool { additionNumber(version) >= 28 }
+
     static func order(_ id: CGWindowID, relativeTo other: CGWindowID, order: Int32) -> Data {
         var data = Data(); pack(id, into: &data); pack(order, into: &data); pack(other, into: &data)
         return message(0x10, data)
@@ -91,9 +123,10 @@ enum LiveWindowsWire {
     /// canvas and raises the window above it, all in its one screen update. `keeping` (sunlight-10 and
     /// up, with the canvas's IDs): windows that stay on show with it, bottom to top, each going to its
     /// point natively and staying in front of the canvas, under the entered window; a count byte, then
-    /// window, x, y for each. At most `maxKept`.
+    /// window, x, y for each. At most `maxKept`. `top` (sunlight-28 and up): the top of the display's
+    /// visible part, global, which the add-on lets no window go above natively; a trailing float.
     static func handoff(_ id: CGWindowID, at point: CGPoint, overlay: CGWindowID = 0, backdrop: CGWindowID = 0,
-                        keeping kept: [(CGWindowID, CGPoint)] = []) -> Data {
+                        keeping kept: [(CGWindowID, CGPoint)] = [], top: CGFloat? = nil) -> Data {
         var data = Data()
         pack(id, into: &data)
         pack(Float(point.x), into: &data)
@@ -102,7 +135,9 @@ enum LiveWindowsWire {
             pack(overlay, into: &data)
             pack(backdrop, into: &data)
             let kept = kept.suffix(maxKept)   // the top ones, if ever there were more
-            if !kept.isEmpty {
+            // The count byte goes with the top as well (sunlight-28 reads the top after the count): a
+            // handoff keeping nothing with the top but no count was refused, and the canvas fell back.
+            if !kept.isEmpty || top != nil {
                 data.append(UInt8(kept.count))
                 for (keptID, keptPoint) in kept {
                     pack(keptID, into: &data)
@@ -110,6 +145,7 @@ enum LiveWindowsWire {
                     pack(Float(keptPoint.y), into: &data)
                 }
             }
+            if let top { pack(Float(top), into: &data) }
         }
         return message(handoff, data)
     }
@@ -157,20 +193,28 @@ enum LiveWindowsWire {
 
         /// SkyLight stores the inverse mapping: screen points -> unscaled window-local points.
         /// Native identity is a translation by minus the window's real origin, not .identity.
-        /// `pop` below 1 draws the window that much smaller about the centre of its on-screen rect (a
-        /// window arriving on the canvas, see `WindowProxy.entranceScale`); the inverse scale and the
-        /// translation follow. Never below a half: the addition rejects an inverse scale past 100.
-        init(id: CGWindowID, worldRect: CGRect, inset: CGFloat, camera: Camera, pop: CGFloat = 1) {
+        /// `effect` draws the window scaled about a point of its on-screen rect and moved (a window
+        /// opening or closing, see `WindowEffect`); the inverse scale and the translation follow. Only
+        /// positive, axis-aligned scales: the addition takes nothing else. Never so small that the
+        /// inverse passes 100, which the addition rejects (`minimumScale`).
+        init(id: CGWindowID, worldRect: CGRect, inset: CGFloat, camera: Camera, effect: WindowEffect.Frame = .identity) {
             self.id = id
-            let scale = max(0.5, pop)
             var target = camera.toScreen(worldRect.insetBy(dx: -inset, dy: -inset))
-            if scale != 1 {
-                target = target.insetBy(dx: target.width * (1 - scale) / 2, dy: target.height * (1 - scale) / 2)
+            var sx = camera.zoom, sy = camera.zoom
+            if !effect.keepsGeometry {
+                var f = effect
+                f.scale.width = max(Window.minimumScale / camera.zoom, f.scale.width)
+                f.scale.height = max(Window.minimumScale / camera.zoom, f.scale.height)
+                target = f.applied(toScreen: target)
+                sx *= f.scale.width
+                sy *= f.scale.height
             }
-            let inverse = 1 / (camera.zoom * scale)
-            transform = CGAffineTransform(a: inverse, b: 0, c: 0, d: inverse,
-                                          tx: -target.minX * inverse, ty: -target.minY * inverse)
+            let ix = 1 / sx, iy = 1 / sy
+            transform = CGAffineTransform(a: ix, b: 0, c: 0, d: iy, tx: -target.minX * ix, ty: -target.minY * iy)
         }
+
+        /// The smallest on-screen scale sent: its inverse stays inside the addition's limit of 100.
+        static let minimumScale: CGFloat = 0.0125
     }
 
     /// `above`: in an empty frame (every window released), the app that has the front, if one took it
@@ -361,7 +405,7 @@ final class LiveWindowsConnection {
     static func reason(for status: UInt8) -> String {
         [1: "invalid request", 2: "reading native state", 3: "setting transform",
          4: "setting window level", 5: "ordering window", 6: "ordering input overlay",
-         7: "committing handoff", 8: "setting shadow", 9: "not a standard shadow"][Int(status)] ?? "status \(status)"
+         7: "committing handoff", 8: "setting shadow", 9: "not a standard shadow", 10: "no window alpha"][Int(status)] ?? "status \(status)"
     }
 
     func acknowledge(_ data: Data) throws {

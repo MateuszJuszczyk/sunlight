@@ -7,6 +7,16 @@
 - Strong window snapping can centre nearby smaller windows; Normal retains the original full-screen snap.
 - Overview clicks centre and enter windows by default; double-click enters at the clicked position. Settings can reverse these actions.
 
+## 0.1.5
+
+- Windows open and close with an effect. Automatic (the default) picks one per window: a window opened with Open Here… grows out of the spot you clicked, one placed beside another slides out from behind it, sheets and prompts unfold from their top edge, and the rest rise into place as they brighten, like the sun coming up. Closing from the canvas plays the effect first, then presses the close button; a window its app keeps ("save changes?") opens again. Settings > Windows > Opening and closing has Sunrise, Unfold, Bloom, Dissolve and None; Reduce Motion makes every effect a fade.
+- Entering a window or switching apps no longer blinks: the window, and the ones kept on show around it, no longer vanish for a frame at the seam, a new window or a launching app comes onto the canvas without flashing at full size first, and no window is left out of place or on top afterwards.
+- Sheets, alerts and prompts hang from the window they opened over: they sit beside it on the canvas, move with it, and come back in front of it when you go into it, instead of getting a place of their own.
+- See All starts at once, even with many windows open.
+- The minimap shows only on the canvas, popping in and out, and no longer peeks out from behind a window you're in.
+- Saved layouts that don't restore now say why in the log, for bug reports.
+- These need the Dock add-on sunlight-41. Sunlight loads it by itself the first time it starts after the update, which restarts the Dock once. With live windows allowed in Login Items that needs nothing from you; otherwise Sunlight asks for your administrator password once.
+
 ## 0.1.4
 
 - Windows keep their places on the canvas. They no longer shift after a new window opens or as you switch between apps, and closing a window from the canvas leaves the canvas where it was.

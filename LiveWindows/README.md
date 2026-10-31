@@ -156,6 +156,25 @@ at native size that was the window just left flashing full-size behind the one b
 on a screen recording of quick ⌘Tab taps. At the canvas's transform it shows only where the canvas
 already drew it.
 
+Since sunlight-15 the handoff's native moves (the entered window to its point, and the windows kept on
+show to theirs) go in the same transaction as the settled transforms, each move just before its
+transform (`SLSTransactionMoveWindowWithGroup`; direct, as before, where SkyLight lacks it). The window
+server keeps a transform relative to the window's native origin, so a window moved natively while a
+transform is in force shifts on screen by as much as the move until its transform is set again. Made
+directly before the transaction, the move put the entered window, natively wherever it was last used,
+off the screen for the few milliseconds until the commit: on a frame boundary, one frame of wallpaper
+where the window and the ones kept with it had been, caught on a screen recording of one switch in
+four. Where the window lands elsewhere than asked (an app can clamp a move) it is drawn where it landed
+with one direct call after the commit, as it was before.
+
+Since sunlight-40 a lease can set the alpha of the windows it holds (opcode `0x75`: a count, then a
+window ID and an alpha from 0 to 1 for each, relative to the window's own alpha, read the first time).
+The canvas fades windows in as they open and out as they close from the canvas. Whatever alpha it set
+goes back to the window's own whenever the window is given back: put back under the canvas (a frame
+leaving it out, a release), handed off (the entered window and the ones kept on show too), or the lease
+ending. A window the lease doesn't hold is passed over. Older add-ons open and close windows with
+transforms alone.
+
 The driver has one pending-frame slot on a serial worker. It replaces stale pending frames, rather
 than queuing an animation history. Connect/send/receive waits are bounded at 250 ms; frames carry an
 acknowledgment. A 0.5-second idle heartbeat keeps the lease alive. Disconnect, malformed input, or
@@ -187,6 +206,10 @@ clang LiveWindows/smoke-live.m -framework Cocoa -F/System/Library/PrivateFramewo
 
 It animates 300 live transforms through the Dock socket, reads back the WindowServer transforms,
 checks exact disconnect restoration, measures round-trip latency and checks native-scale handoff.
+`LiveWindows/seam-test.m` (built the same way) runs handoffs on its own windows while a thread polls the
+subject's transform at ~20 µs, and prints every distinct drawn position: a line marked "off its spot" is
+the window off screen between its native move and the commit, which sunlight-15 removed.
+
 No ScreenCaptureKit API is used. This is a prerequisite to, not a replacement for, testing Sunlight's
 full canvas: pan/zoom/drag, enter/return, new/closed windows, widgets, sleep, mode switches and quit.
 Verify the purple capture indicator is absent and live content updates. Keep an unmanaged window
