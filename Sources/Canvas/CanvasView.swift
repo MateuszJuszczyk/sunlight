@@ -21,13 +21,7 @@ final class CanvasView: NSView {
     /// How long a window takes to settle onto the grid when it's let go.
     nonisolated static let snapDuration: CFTimeInterval = 0.16
     nonisolated static let cameraDuration: CFTimeInterval = 0.42
-    /// A window arriving on the canvas starts this much smaller and springs to size.
-    static let entranceScale: CGFloat = 0.9
-    /// How hard it springs: the spring's starting speed, in scale per second. Zero would merely ease in.
-    static let entranceSpeed: CGFloat = 0.6
-    /// The spring is within a tenth of a percent of its size by then.
-    nonisolated static let entranceDuration: CFTimeInterval = 0.5
-    /// The ring rippling out from an arriving window's edges: how long, and how far (screen points).
+    /// Bloom's ring rippling out from an arriving window's edges: how long, and how far (screen points).
     nonisolated static let ringDuration: CFTimeInterval = 0.45
     static let ringReach: CGFloat = 24
 
@@ -385,17 +379,30 @@ final class CanvasView: NSView {
     /// The perf summary under the zoom readout, only with `PerfLog` on.
     private let hudPerf = CATextLayer()
 
-    /// A window arriving on the canvas: a spring scale-in about its centre, a fade for a capture
-    /// texture and its label, and one thin ring spreading out from its edges. Ticked by the display
-    /// link alongside the camera; input never cancels it.
+    /// A window opening onto the canvas or leaving it, as `WindowEffect` draws it: the window's own
+    /// frame each tick, and what the canvas draws with it — a veil to brighten or dim it, Bloom's ring,
+    /// the neighbour Dealt nudges aside. Ticked by the display link alongside the camera; input never
+    /// cancels it.
     private struct Entrance {
         let proxy: WindowProxy
         let added: CFTimeInterval
         /// Nil until there is something to show: the first captured frame, or at once for a real window.
         var start: CFTimeInterval?
-        let ring: CAShapeLayer
+        var opening: Bool
+        var style: WindowEffect.Style
+        var context: WindowEffect.Context
+        /// The window it was placed beside, while it is on the canvas: Dealt comes out from behind it.
+        weak var neighbour: WindowProxy?
+        /// Dealt moved the window under its neighbour for the opening: on top again once it's out.
+        var underNeighbour = false
+        var ring: CAShapeLayer?
+        var veil: CAShapeLayer?
+        /// A close: what to do once the window is gone from sight.
+        var completion: (() -> Void)?
     }
     private var entrances: [Entrance] = []
+    /// Closed windows held gone (their last frame) until the listing drops them, or the close is undone.
+    private var held: [(proxy: WindowProxy, entrance: Entrance)] = []
     /// An entrance moved this frame: the real-window renderer resends its transforms.
     var onEntranceChanged: (() -> Void)?
 
@@ -675,13 +682,14 @@ final class CanvasView: NSView {
         chromeLayer.addSublayer(proxy.label)
         chromeLayer.addSublayer(proxy.controls)
         proxy.layout(zoom: camera.zoom)
-        if arriving { beginEntrance(proxy) }
+        if arriving { beginEntrance(proxy, context: WindowEffect.Context()) }
         onContentChanged?()
     }
 
     func remove(_ proxy: WindowProxy) {
         proxies.removeAll { $0 === proxy }
         endEntrance(of: proxy)
+        held.removeAll { $0.proxy === proxy }
         if hovered === proxy { hovered = nil }
         proxy.outlined = false
         outlinedMembers.removeAll { $0 === proxy }
@@ -718,6 +726,8 @@ final class CanvasView: NSView {
         proxies.append(proxy)
         proxy.layer.removeFromSuperlayer()
         proxiesLayer(for: proxy).addSublayer(proxy.layer)
+        // Its sheets and prompts stay on top of it.
+        for c in proxy.attachedChildren where proxies.contains(where: { $0 === c }) { bringToFront(c) }
         onContentChanged?()
     }
 
@@ -732,8 +742,12 @@ final class CanvasView: NSView {
         return (true, floor.icon(atWorld: worldPoint))
     }
 
+    /// The window under a world point. A sheet or prompt isn't a window of its own here: the press,
+    /// hover or drag is its parent's (the real press still lands on the sheet, which is on top of it).
     func proxy(at worldPoint: CGPoint) -> WindowProxy? {
-        proxies.last { !$0.leaving && $0.worldRect.contains(worldPoint) }
+        guard let hit = proxies.last(where: { !$0.leaving && !$0.closing && $0.worldRect.contains(worldPoint) }) else { return nil }
+        if let parentID = hit.attachedTo, let parent = proxies.first(where: { $0.windowID == parentID }) { return parent }
+        return hit
     }
 
     // MARK: Camera
@@ -1077,7 +1091,7 @@ final class CanvasView: NSView {
     private func interruptMotion() {
         // Windows on their way somewhere (where the real one already is, the grid, a layout's spot) go
         // straight there.
-        for m in animation?.moves ?? [] { m.proxy.worldRect.origin = m.to }
+        for m in animation?.moves ?? [] { m.proxy.place(at: m.to) }
         let hadCompletion = animation?.completion != nil || flight?.completion != nil
         let hadTarget = animation != nil || flight != nil
         let hadFlight = flight != nil
@@ -1178,8 +1192,8 @@ final class CanvasView: NSView {
         let center = CGPoint(x: c0.x + (c1.x - c0.x) * s, y: c0.y + (c1.y - c0.y) * s)
         camera = raw >= 1 ? a.to : Camera(center: center, zoom: zoom, viewSize: bounds.size)
         for m in a.moves {
-            m.proxy.worldRect.origin = raw >= 1 ? m.to
-                : CGPoint(x: m.from.x + (m.to.x - m.from.x) * s, y: m.from.y + (m.to.y - m.from.y) * s)
+            m.proxy.place(at: raw >= 1 ? m.to
+                : CGPoint(x: m.from.x + (m.to.x - m.from.x) * s, y: m.from.y + (m.to.y - m.from.y) * s))
         }
         applyCamera()
         if raw >= 1 {
@@ -1190,16 +1204,18 @@ final class CanvasView: NSView {
 
     // MARK: Entrances
 
-    private func beginEntrance(_ proxy: WindowProxy) {
-        let ring = CAShapeLayer()
-        ring.anchorPoint = .zero
-        ring.position = .zero
-        ring.fillColor = nil
-        ring.strokeColor = ink.withAlphaComponent(0.8).cgColor
-        ring.lineCap = .round
-        ring.actions = ["path": NSNull(), "lineWidth": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull()]
-        chromeLayer.insertSublayer(ring, at: 0)   // over every window, under the labels and the guides
-        var entrance = Entrance(proxy: proxy, added: CACurrentMediaTime(), start: nil, ring: ring)
+    /// The effect a window gets now, from Settings › Windows › Opening and closing.
+    private func effectStyle(for context: WindowEffect.Context) -> WindowEffect.Style? {
+        WindowEffect.style(for: Settings.windowEffect, context: context,
+                           reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    private func beginEntrance(_ proxy: WindowProxy, context: WindowEffect.Context, style forced: WindowEffect.Style? = nil) {
+        endEntrance(of: proxy)
+        guard let style = forced ?? effectStyle(for: context) else { return }
+        var entrance = Entrance(proxy: proxy, added: CACurrentMediaTime(), start: nil, opening: true,
+                                style: style, context: context)
+        decorate(&entrance)
         // The first frame is already small and faint: the window is never seen at full size first.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -1209,54 +1225,230 @@ final class CanvasView: NSView {
         startDisplayLink()
     }
 
-    private func endEntrance(of proxy: WindowProxy) {
-        guard let i = entrances.firstIndex(where: { $0.proxy === proxy }) else { return }
-        entrances[i].ring.removeFromSuperlayer()
-        entrances.remove(at: i)
-        proxy.setEntrance(scale: 1, opacity: 1)
+    /// The ring and the veil a style draws, made fresh.
+    private func decorate(_ e: inout Entrance) {
+        e.ring?.removeFromSuperlayer(); e.ring = nil
+        e.veil?.removeFromSuperlayer(); e.veil = nil
+        func layer() -> CAShapeLayer {
+            let l = CAShapeLayer()
+            l.anchorPoint = .zero
+            l.position = .zero
+            l.actions = ["path": NSNull(), "lineWidth": NSNull(), "opacity": NSNull(), "position": NSNull(), "bounds": NSNull()]
+            l.opacity = 0
+            chromeLayer.insertSublayer(l, at: 0)   // over every window, under the labels and the guides
+            return l
+        }
+        if e.opening, e.style == .bloom {
+            let ring = layer()
+            ring.fillColor = nil
+            ring.strokeColor = ink.withAlphaComponent(0.8).cgColor
+            ring.lineCap = .round
+            e.ring = ring
+        }
+        if e.style == .sunrise {
+            let veil = layer()
+            veil.fillColor = NSColor.black.cgColor
+            e.veil = veil
+        }
     }
 
-    /// Every arriving window a frame on. The real-window renderer is told once, after the ones that
-    /// finished have been put back to size, so the last transforms it sends are the camera's exactly.
-    private func tickEntrances(at now: CFTimeInterval) {
-        guard !entrances.isEmpty else { return }
-        var finished: [WindowProxy] = []
+    /// What is known of a window that just opened, now that the controller has placed it: where it
+    /// was asked for, the window it went beside, whether it hangs from another. Picks its effect again;
+    /// the entrance hasn't been seen yet (it starts in this same turn of the run loop).
+    func setArrival(of proxy: WindowProxy, context: WindowEffect.Context, neighbour: WindowProxy? = nil) {
+        guard let i = entrances.firstIndex(where: { $0.proxy === proxy && $0.opening }) else { return }
+        guard let style = effectStyle(for: context) else {
+            endEntrance(of: proxy)
+            return
+        }
+        var e = entrances[i]
+        e.context = context
+        e.neighbour = neighbour
+        if style != e.style {
+            e.style = style
+            decorate(&e)
+        }
+        // Dealt comes out from behind its neighbour: under it until it's clear.
+        if style == .dealt, let neighbour, neighbour.layer.superlayer === proxy.layer.superlayer,
+           let n = proxies.firstIndex(where: { $0 === neighbour }), let p = proxies.firstIndex(where: { $0 === proxy }), n < p {
+            proxies.remove(at: p)
+            proxies.insert(proxy, at: n)
+            proxy.layer.superlayer?.insertSublayer(proxy.layer, below: neighbour.layer)
+            e.underNeighbour = true
+            onContentChanged?()
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for i in entrances.indices where advance(&entrances[i], at: now) {
-            finished.append(entrances[i].proxy)
-        }
-        for p in finished { endEntrance(of: p) }
+        _ = advance(&e, at: e.start ?? e.added)
         CATransaction.commit()
+        entrances[i] = e
         onEntranceChanged?()
     }
 
-    /// One frame of an entrance; true once it is over. Everything is read from the window as it is
-    /// now — its world rect, the zoom — so a window placed or a camera moved meanwhile is followed.
-    private func advance(_ e: inout Entrance, at now: CFTimeInterval) -> Bool {
+    /// A window closing from the canvas: its closing effect plays, then `completion` (the press of its
+    /// close button), and it is held gone until the listing drops it — or `cancelExit` brings it back,
+    /// if the app said no. No effect at all: `completion` at once.
+    func beginExit(_ proxy: WindowProxy, context: WindowEffect.Context, completion: @escaping () -> Void) {
+        endEntrance(of: proxy)
+        guard proxies.contains(where: { $0 === proxy }), let style = effectStyle(for: context) else {
+            completion()
+            return
+        }
+        // A close has no source or neighbour to go back to: those would be wherever the window was
+        // opened, long ago. It sets like the sun instead.
+        let closing: WindowEffect.Style = style == .source || style == .dealt ? .sunrise : style
+        var exit = Entrance(proxy: proxy, added: CACurrentMediaTime(), start: CACurrentMediaTime(), opening: false,
+                            style: closing, context: context, completion: completion)
+        decorate(&exit)
+        proxy.closing = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        _ = advance(&exit, at: exit.added)
+        CATransaction.commit()
+        entrances.append(exit)
+        startDisplayLink()
+        onEntranceChanged?()
+    }
+
+    /// Whether a window is playing its close, or held gone after it.
+    func isClosing(_ proxy: WindowProxy) -> Bool {
+        held.contains { $0.proxy === proxy } || entrances.contains { $0.proxy === proxy && !$0.opening }
+    }
+
+    /// The app kept the window (a "save changes?" sheet, a refusal): it opens again, the same way.
+    func cancelExit(_ proxy: WindowProxy) {
+        let style: WindowEffect.Style
+        let context: WindowEffect.Context
+        if let i = held.firstIndex(where: { $0.proxy === proxy }) {
+            style = held[i].entrance.style; context = held[i].entrance.context
+            held.remove(at: i)
+        } else if let e = entrances.first(where: { $0.proxy === proxy && !$0.opening }) {
+            style = e.style; context = e.context
+            endEntrance(of: proxy)
+        } else { return }
+        proxy.closing = false
+        beginEntrance(proxy, context: context, style: style)
+        onEntranceChanged?()
+    }
+
+    private func endEntrance(of proxy: WindowProxy) {
+        guard let i = entrances.firstIndex(where: { $0.proxy === proxy }) else { return }
+        let e = entrances[i]
+        e.ring?.removeFromSuperlayer()
+        e.veil?.removeFromSuperlayer()
+        entrances.remove(at: i)
+        // Not a neighbour closing or held hidden after its close: `.identity` would show it again.
+        if let n = e.neighbour, !entrances.contains(where: { $0.proxy === n }), !n.closing, !held.contains(where: { $0.proxy === n }) {
+            n.setEffect(.identity, zoom: camera.zoom)
+        }
+        if e.underNeighbour { bringToFront(proxy) }
+        if !e.opening { proxy.closing = false }
+        proxy.setEffect(.identity, zoom: camera.zoom)
+    }
+
+    /// Every opening and closing window a frame on. The real-window renderer is told once, after the ones
+    /// that finished have been put back to size, so the last transforms it sends are the camera's exactly.
+    private func tickEntrances(at now: CFTimeInterval) {
+        guard !entrances.isEmpty else { return }
+        var finished: [Entrance] = []
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // Read before the loop: `advance` mustn't look at the list while one of its entries is inout.
+        // Playing an entrance or held hidden after a close: neither is nudged by a neighbour's.
+        let moving = Set(entrances.map { ObjectIdentifier($0.proxy) } + held.map { ObjectIdentifier($0.proxy) })
+        for i in entrances.indices where advance(&entrances[i], at: now, moving: moving) {
+            finished.append(entrances[i])
+        }
+        for e in finished {
+            if e.opening {
+                endEntrance(of: e.proxy)
+            } else {
+                // Gone from sight: held there (its last frame stays on it) until it's dropped or comes back.
+                guard let i = entrances.firstIndex(where: { $0.proxy === e.proxy }) else { continue }
+                e.ring?.removeFromSuperlayer()
+                e.veil?.removeFromSuperlayer()
+                entrances.remove(at: i)
+                var kept = e
+                kept.completion = nil
+                held.append((e.proxy, kept))
+            }
+        }
+        CATransaction.commit()
+        onEntranceChanged?()
+        for e in finished where !e.opening { e.completion?() }
+    }
+
+    /// Where the window's centre is going to or coming from, on screen.
+    private func geometry(of e: Entrance) -> WindowEffect.Geometry {
+        let r = camera.toScreen(e.proxy.worldRect)
+        let centre = CGPoint(x: r.midX, y: r.midY)
+        var g = WindowEffect.Geometry()
+        if let source = e.context.source {
+            let s = camera.toScreen(source)
+            g.toSource = CGVector(dx: s.x - centre.x, dy: s.y - centre.y)
+        }
+        if let rect = e.neighbour.map({ $0.worldRect }) ?? e.context.neighbour {
+            let n = camera.toScreen(rect)
+            g.toNeighbour = CGVector(dx: n.midX - centre.x, dy: n.midY - centre.y)
+        }
+        return g
+    }
+
+    /// One frame of an entrance or exit; true once it is over. Everything is read from the window as it
+    /// is now — its world rect, the zoom — so a window placed or a camera moved meanwhile is followed.
+    /// `moving`: every window with an effect of its own playing, which Dealt leaves alone.
+    private func advance(_ e: inout Entrance, at now: CFTimeInterval, moving: Set<ObjectIdentifier> = []) -> Bool {
         // Not before there is something to show: a capture proxy's grey placeholder shouldn't pop and
         // then have the texture land mid-spring. An unstreamable window shows the placeholder after all.
         if e.start == nil, e.proxy.hasFrame || e.proxy.usesRealWindow || now - e.added > 1.5 {
             e.start = now
         }
+        let geometry = geometry(of: e)
         guard let start = e.start else {
-            e.proxy.setEntrance(scale: CanvasView.entranceScale, opacity: 0)
+            e.proxy.setEffect(WindowEffect.frame(e.style, opening: true, at: 0, geometry: geometry), zoom: camera.zoom)
             return false
         }
-        let t = CGFloat(now - start)
-        let spring = Spring(x0: CanvasView.entranceScale - 1, v0: CanvasView.entranceSpeed)
-        e.proxy.setEntrance(scale: 1 + spring.evaluate(at: t).x, opacity: Float(min(1, t / 0.2)))
+        let t = now - start
+        let frame = WindowEffect.frame(e.style, opening: e.opening, at: t, geometry: geometry)
+        e.proxy.setEffect(frame, zoom: camera.zoom)
+        let shown = frame.applied(toWorld: e.proxy.worldRect, zoom: camera.zoom)
+        let radius = e.proxy.layer.cornerRadius * min(frame.scale.width, frame.scale.height)
 
-        // The ring: a hairline rounded rect spreading from the edges and fading. In world units, but
+        if let veil = e.veil {
+            let r = caRect(shown)
+            veil.path = CGPath(roundedRect: r, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            veil.opacity = frame.dim * frame.opacity
+        }
+        // Bloom's ring: a hairline rounded rect spreading from the edges and fading. In world units, but
         // sized from the zoom, so its reach and stroke are the same on screen whatever the camera does.
-        let p = min(1, t / CGFloat(CanvasView.ringDuration))
-        let d = CanvasView.ringReach * (1 - pow(1 - p, 3)) / camera.zoom
-        let r = caRect(e.proxy.worldRect).insetBy(dx: -d, dy: -d)
-        let radius = e.proxy.layer.cornerRadius + d
-        e.ring.path = CGPath(roundedRect: r, cornerWidth: radius, cornerHeight: radius, transform: nil)
-        e.ring.lineWidth = 1 / camera.zoom
-        e.ring.opacity = Float(1 - p)
-        return t >= CGFloat(CanvasView.entranceDuration)
+        if let ring = e.ring {
+            let p = min(1, CGFloat(t / CanvasView.ringDuration))
+            let d = CanvasView.ringReach * (1 - pow(1 - p, 3)) / camera.zoom
+            let r = caRect(e.proxy.worldRect).insetBy(dx: -d, dy: -d)
+            let ringRadius = e.proxy.layer.cornerRadius + d
+            ring.path = CGPath(roundedRect: r, cornerWidth: ringRadius, cornerHeight: ringRadius, transform: nil)
+            ring.lineWidth = 1 / camera.zoom
+            ring.opacity = Float(1 - p)
+        }
+        // Dealt's neighbour gives way a few points as the window comes out from behind it.
+        if e.opening, e.style == .dealt, let n = e.neighbour, !n.closing, !moving.contains(ObjectIdentifier(n)) {
+            let away = geometry.toNeighbour.map { v -> CGVector in
+                let length = max(hypot(v.dx, v.dy), 1)
+                return CGVector(dx: v.dx / length, dy: v.dy / length)
+            } ?? .zero
+            let push = WindowEffect.nudgeReach * WindowEffect.nudge(at: t)
+            var nudge = WindowEffect.Frame()
+            nudge.offset = CGVector(dx: away.dx * push, dy: away.dy * push)
+            n.setEffect(t >= WindowEffect.nudgeDuration ? .identity : nudge, zoom: camera.zoom)
+        }
+        // Out from behind its neighbour: on top again, where a new window belongs.
+        if e.underNeighbour, let n = e.neighbour, !shown.intersects(n.worldRect) || t > WindowEffect.duration(e.style, opening: true) * 0.6 {
+            bringToFront(e.proxy)
+            e.underNeighbour = false
+        }
+        let end = max(WindowEffect.duration(WindowEffect.usable(e.style, geometry), opening: e.opening),
+                      e.opening && e.style == .dealt ? WindowEffect.nudgeDuration : 0)
+        return t >= end
     }
 
     // MARK: Snapping
@@ -1373,18 +1565,18 @@ final class CanvasView: NSView {
     /// The window in hand goes to `origin`, and the windows bonded to it by the same amount.
     private func place(_ proxy: WindowProxy, at origin: CGPoint, members: [Member]) {
         let delta = CGVector(dx: origin.x - proxy.worldRect.minX, dy: origin.y - proxy.worldRect.minY)
-        proxy.worldRect.origin = origin
+        proxy.place(at: origin)
         guard delta != .zero else { return }
         for member in members {
-            member.proxy.worldRect.origin = CGPoint(x: member.proxy.worldRect.minX + delta.dx, y: member.proxy.worldRect.minY + delta.dy)
+            member.proxy.place(at: CGPoint(x: member.proxy.worldRect.minX + delta.dx, y: member.proxy.worldRect.minY + delta.dy))
         }
     }
 
     /// A pushed body shown at `origin`: its lead there, its members at their offsets from it.
     private func land(_ push: Push, at origin: CGPoint) {
-        push.proxy.worldRect.origin = origin
+        push.proxy.place(at: origin)
         for member in push.members {
-            member.proxy.worldRect.origin = CGPoint(x: origin.x + member.offset.dx, y: origin.y + member.offset.dy)
+            member.proxy.place(at: CGPoint(x: origin.x + member.offset.dx, y: origin.y + member.offset.dy))
         }
     }
 
@@ -1452,7 +1644,7 @@ final class CanvasView: NSView {
         if let fixedAt { handRects[0] = fixedAt }
         let hand = Magnetism.Body(rects: handRects, poles: held.map(\.polarity))
         let others = proxies.filter { p in
-            !held.contains { $0 === p } && !gliding.contains { $0 === p } && isPlacedBySetting?(p) != true
+            !held.contains { $0 === p } && !gliding.contains { $0 === p } && isPlacedBySetting?(p) != true && p.attachedTo == nil
         }
 
         // Everyone else, a group as one body, each from where it's heading if it's already on the move.
@@ -1621,7 +1813,7 @@ final class CanvasView: NSView {
             MainActor.assumeIsolated {
                 view.settleMagnet(now: true)
                 for (p, r) in rects where view.proxies.contains(where: { $0 === p }) || view.away.contains(where: { $0 === p }) {
-                    p.worldRect.origin = r.origin
+                    p.place(at: r.origin)
                     view.onMoved?(p)
                 }
                 view.grouping = before
@@ -2161,7 +2353,7 @@ final class CanvasView: NSView {
                 resizing = r
             }
             let delta = CGVector(dx: (screenPoint.x - r.start.x) / camera.zoom, dy: (screenPoint.y - r.start.y) / camera.zoom)
-            r.proxy.worldRect = Resizing.resize(r.startRect, edges: r.edges, by: delta)
+            r.proxy.place(Resizing.resize(r.startRect, edges: r.edges, by: delta))
             // A growing edge shoves what's in its way; ⌘ lets it grow over. Its own group stays put
             // (part of the hand, so not shoved), and is left as it was.
             if Settings.magnetism, !Settings.stripMode, !event.modifierFlags.contains(.command) {
@@ -2266,7 +2458,7 @@ final class CanvasView: NSView {
             if r.moved {
                 // The edges that moved settle onto the grid, as a dropped window does; ⌘ leaves them be.
                 if Settings.snapToGrid, !Settings.stripMode, !event.modifierFlags.contains(.command) {
-                    r.proxy.worldRect = Resizing.grid(r.proxy.worldRect, edges: r.edges, size: Settings.gridSize)
+                    r.proxy.place(Resizing.grid(r.proxy.worldRect, edges: r.edges, size: Settings.gridSize))
                     onContentChanged?()
                 }
                 // What it pushed keeps clear of the size it settled at.

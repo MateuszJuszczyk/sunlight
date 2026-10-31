@@ -53,6 +53,7 @@ final class TakeoverMode {
         watcher.onFocusedWindowChanged = { [weak canvas] pid, element in canvas?.focusedWindowChanged(pid: pid, element: element) }
         watcher.onWindowCreated = { [weak canvas] pid, element in canvas?.windowCreated(pid: pid, element: element) }
         watcher.onWindowMiniaturized = { [weak canvas] pid, element in canvas?.windowMiniaturized(pid: pid, element: element) }
+        watcher.onWindowMoved = { [weak canvas] pid, element in canvas?.windowMoved(pid: pid, element: element) }
         watcher.onEnteredWindowDestroyed = { [weak canvas] pid in canvas?.enteredWindowDestroyed(pid: pid) }
     }
 

@@ -26,6 +26,24 @@ enum NewWindowSpot {
         return beside(others, from: middle, gap: gap) { score($0, target: centre, view: view) }
     }
 
+    /// The window a spot was placed against, if any: one of `others` that it sits beside, an edge facing
+    /// one of its edges no further than the gap away (and a little slack), the two overlapping along that
+    /// edge. The nearest by centre among several. Nil for a spot in the clear.
+    static func neighbour(of spot: CGRect, among others: [CGRect], gap: CGFloat) -> Int? {
+        let reach = gap + 2
+        var best: (index: Int, distance: CGFloat)?
+        for (i, r) in others.enumerated() {
+            let overlapX = min(spot.maxX, r.maxX) - max(spot.minX, r.minX)
+            let overlapY = min(spot.maxY, r.maxY) - max(spot.minY, r.minY)
+            let sideBySide = overlapY > 0 && (abs(spot.minX - r.maxX) <= reach || abs(r.minX - spot.maxX) <= reach)
+            let stacked = overlapX > 0 && (abs(spot.minY - r.maxY) <= reach || abs(r.minY - spot.maxY) <= reach)
+            guard sideBySide || stacked else { continue }
+            let d = hypot(spot.midX - r.midX, spot.midY - r.midY)
+            if best == nil || d < best!.distance { best = (i, d) }
+        }
+        return best?.index
+    }
+
     /// A spot the window already has (where it was last run): kept if it's still free, otherwise the
     /// free spot nearest it, beside the windows that took it, in view or not.
     static func free(_ r: CGRect, avoiding others: [CGRect], gap: CGFloat) -> CGRect {

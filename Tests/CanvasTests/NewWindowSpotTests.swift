@@ -120,4 +120,20 @@ final class NewWindowSpotTests: XCTestCase {
         // Below it, where the least of it is off screen, under its middle.
         XCTAssertEqual(r, CGRect(x: 800, y: 1132, width: 400, height: 300))
     }
+
+    func testNeighbourIsTheWindowTheSpotWentBeside() {
+        let a = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let b = CGRect(x: 1000, y: 0, width: 400, height: 300)
+        // Right of a, a gap of 8 away, overlapping it vertically.
+        XCTAssertEqual(NewWindowSpot.neighbour(of: CGRect(x: 408, y: 50, width: 300, height: 200), among: [b, a], gap: 8), 1)
+        // Under b.
+        XCTAssertEqual(NewWindowSpot.neighbour(of: CGRect(x: 1100, y: 308, width: 300, height: 200), among: [a, b], gap: 8), 1)
+        // In the clear, or near but not facing an edge: none.
+        XCTAssertNil(NewWindowSpot.neighbour(of: CGRect(x: 600, y: 600, width: 200, height: 200), among: [a, b], gap: 8))
+        XCTAssertNil(NewWindowSpot.neighbour(of: CGRect(x: 408, y: 400, width: 200, height: 200), among: [a, b], gap: 8))
+        // Between both: the nearer by centre.
+        let between = CGRect(x: 408, y: 0, width: 584, height: 300)
+        let wide = CGRect(x: 1000, y: 0, width: 800, height: 300)
+        XCTAssertEqual(NewWindowSpot.neighbour(of: between, among: [wide, a], gap: 8), 1)
+    }
 }

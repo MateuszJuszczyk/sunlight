@@ -10,6 +10,7 @@
 #include <assert.h>
 #define SA_SOCKET_BUFF_LEN 0x1000
 #define SUNBEAM_WEAK   // the transaction calls are defined right here
+#define SUNBEAM_SETTLE_NOW   // native sizes at once, not a frame later: the tests read them straight back
 static CGAffineTransform transforms[10];
 static int levels[10], mutations[10];
 int SLSMainConnectionID(void) { return 1; }
@@ -33,6 +34,10 @@ static int txn_transforms[10];
 CGError SLSTransactionSetWindowTransform(CFTypeRef t, uint32_t w, int u, int u2, CGAffineTransform tr) { transforms[w] = tr; mutations[w]++; txn_transforms[w]++; return 0; }
 CGError SLSTransactionSetWindowLevel(CFTypeRef t, uint32_t w, int l) { levels[w] = l; return 0; }
 OSStatus SLSMoveWindowWithGroup(int c, uint32_t w, CGPoint *p) { transforms[w] = CGAffineTransformMakeTranslation(-p->x, -p->y); return 0; }
+// The native move in a transaction (sunlight-15), which the handoff uses in place of the direct one.
+static int txn_moves[10];
+static CGPoint moved_to[10];
+CGError SLSTransactionMoveWindowWithGroup(CFTypeRef t, uint32_t w, CGPoint p) { transforms[w] = CGAffineTransformMakeTranslation(-p.x, -p.y); if (w < 10) { txn_moves[w]++; moved_to[w] = p; } return 0; }
 CGError SLSGetWindowBounds(int c, uint32_t w, CGRect *f) { *f = CGRectMake(-transforms[w].tx, -transforms[w].ty, 400, 300); return 0; }
 // What the window server answers about a window's shadow (the active look's density and offset), and
 // the looks written to it.
@@ -47,6 +52,10 @@ CGError SLSWindowSetShadowProperties(uint32_t w, CFDictionaryRef properties) {
     if (shadow_dicts[w]) CFRelease(shadow_dicts[w]);
     shadow_dicts[w] = CFRetain(properties); shadow_writes++; return 0;
 }
+// Window alpha (sunlight-40): what the window server holds for each window, and how often it was set.
+static float alphas[10] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}; static int alpha_writes[10];
+CGError SLSGetWindowAlpha(int c, uint32_t w, float *a) { if (w >= 10) return kCGErrorFailure; *a = alphas[w]; return 0; }
+CGError SLSSetWindowAlpha(int c, uint32_t w, float a) { if (w >= 10) return kCGErrorFailure; alphas[w] = a; alpha_writes[w]++; return 0; }
 // The window server's listing, faked: every fake window (ids under 10) is on screen unless marked
 // `offscreen` (minimized, say), and asked about one window alone the list has it only while it is on
 // screen, as the real one does. The other listings (below a window, everything on screen) stay empty,
@@ -115,6 +124,15 @@ static uint8_t send_shadow(int fd, uint32_t wid, float inactive, float active) {
     uint8_t status; assert(sunbeam_read(fd, &status, 1));
     return status;
 }
+// An alpha request for one window.
+static uint8_t send_alpha(int fd, uint32_t wid, float alpha) {
+    char bytes[12]; int16_t length = 10;
+    memcpy(bytes, &length, 2); bytes[2] = SUNBEAM_ALPHA; bytes[3] = 1;
+    memcpy(bytes + 4, &wid, 4); memcpy(bytes + 8, &alpha, 4);
+    assert(send(fd, bytes, sizeof(bytes), 0) == sizeof(bytes));
+    uint8_t status; assert(sunbeam_read(fd, &status, 1));
+    return status;
+}
 static double shadow_value(uint32_t w, const char *key) {
     CFStringRef string = CFStringCreateWithCString(NULL, key, kCFStringEncodingUTF8);
     CFNumberRef number = shadow_dicts[w] ? CFDictionaryGetValue(shadow_dicts[w], string) : NULL;
@@ -154,8 +172,9 @@ int main(void) {
     memcpy(handoff + 3, &wid, 4); memcpy(handoff + 7, &x, 4); memcpy(handoff + 11, &y, 4);
     assert(send(fd, handoff, 15, 0) == 15);
     uint8_t status; assert(sunbeam_read(fd, &status, 1) && status == 0);
-    // The handoff brings the canvas down with the entered window, even the 13-byte form that names no canvas.
-    assert(levels[4] == -10 && levels[1] == 0 && levels[2] == 0);
+    // The handoff keeps the canvas up and lifts the entered window above it (sunlight-27), even the
+    // 13-byte form that names no canvas.
+    assert(levels[4] == SUNBEAM_FRONT && levels[1] == SUNBEAM_LEVEL && levels[2] == SUNBEAM_LEVEL);
     close(fd); pthread_join(thread, NULL);
     assert(transforms[4].a == 1 && transforms[4].tx == -120 && transforms[4].ty == -80);
     assert(commits >= 1); // the handoff went through a transaction
@@ -252,7 +271,7 @@ int main(void) {
     assert(levels[1] == 0 && levels[2] == 0);
     close(fd); pthread_join(thread, NULL);
     // An empty frame naming the app in front (sunlight-11, 15 bytes): taken, everything released, the
-    // canvas down (the app has no windows here, so nothing to go under).
+    // canvas staying up above it all (sunlight-27; the app has no windows here to lift above it).
     fd = start(&thread);
     send_flagged(fd, both, 2, SUNBEAM_FRAME_FULL, 2);
     assert(levels[1] == SUNBEAM_LEVEL && levels[4] == SUNBEAM_LEVEL);
@@ -264,7 +283,7 @@ int main(void) {
         assert(send(fd, above, sizeof(above), 0) == sizeof(above));
         uint8_t ack; assert(sunbeam_read(fd, &ack, 1) && ack == 0);
     }
-    assert(CGAffineTransformEqualToTransform(transforms[4], original) && levels[4] == -10 && levels[1] == 0 && levels[2] == 0);
+    assert(CGAffineTransformEqualToTransform(transforms[4], original) && levels[4] == -10 && levels[1] == SUNBEAM_LEVEL && levels[2] == SUNBEAM_LEVEL);
     close(fd); pthread_join(thread, NULL);
 
     // A handoff that keeps windows on show (sunlight-10): 5 goes to its point at its own level and stays,
@@ -288,10 +307,11 @@ int main(void) {
         assert(send(fd, keep, sizeof(keep), 0) == sizeof(keep));
         assert(sunbeam_read(fd, &status, 1) && status == 0);
         assert(transforms[4].a == 1 && transforms[4].tx == -120 && transforms[4].ty == -80);
-        assert(transforms[5].a == 1 && transforms[5].tx == -300 && transforms[5].ty == -50 && levels[5] == -10);
+        assert(transforms[5].a == 1 && transforms[5].tx == -300 && transforms[5].ty == -50 && levels[5] == SUNBEAM_FRONT);
         assert(transforms[6].a == 1 && transforms[6].tx == -70 && transforms[6].ty == -80 && levels[6] == -10);
         assert(txn_transforms[6] == put_back_in_txn);   // put back at native size outside the transaction
         assert(mutations[7] == moves7);
+        assert(txn_moves[4] >= 1 && txn_moves[5] >= 1);   // moved natively in the transaction (sunlight-15)
         // A count that doesn't match the length, or a kept window that is the entered one: refused.
         keep[23] = 2;
         assert(send(fd, keep, sizeof(keep), 0) == sizeof(keep));
@@ -300,6 +320,36 @@ int main(void) {
     close(fd); pthread_join(thread, NULL);
     // Nothing leased any more: the kept window stays where the handoff left it.
     assert(transforms[5].tx == -300 && transforms[5].ty == -50);
+
+    // With the visible top (sunlight-28): a point above it is drawn there, but the native move stops at
+    // the top (AppKit would push a window with its title bar above the menu bar back down), for the
+    // entered window and the kept ones alike.
+    transforms[4] = original; transforms[5] = CGAffineTransformMakeTranslation(-60, -70); levels[4] = -10; levels[5] = -10;
+    fd = start(&thread);
+    send_flagged(fd, three, 3, SUNBEAM_FRAME_FULL, 2);
+    {
+        char keep[2 + 22 + 12 + 4]; int16_t keep_size = 22 + 12 + 4; uint32_t keep_wid = 4, ov = 2, bd = 1; float kx = 120, ky = -10, top = 30;
+        memcpy(keep, &keep_size, 2); keep[2] = SUNBEAM_HANDOFF;
+        memcpy(keep + 3, &keep_wid, 4); memcpy(keep + 7, &kx, 4); memcpy(keep + 11, &ky, 4);
+        memcpy(keep + 15, &ov, 4); memcpy(keep + 19, &bd, 4); keep[23] = 1;
+        uint32_t kept = 5; float px = 300, py = -50;
+        memcpy(keep + 24, &kept, 4); memcpy(keep + 28, &px, 4); memcpy(keep + 32, &py, 4);
+        memcpy(keep + 36, &top, 4);
+        assert(send(fd, keep, sizeof(keep), 0) == sizeof(keep));
+        assert(sunbeam_read(fd, &status, 1) && status == 0);
+        assert(moved_to[4].x == 120 && moved_to[4].y == 30 && transforms[4].a == 1 && transforms[4].tx == -120 && transforms[4].ty == 10);
+        assert(moved_to[5].x == 300 && moved_to[5].y == 30 && transforms[5].a == 1 && transforms[5].tx == -300 && transforms[5].ty == 50);
+        assert(levels[5] == SUNBEAM_FRONT);
+        // Keeping nothing, with the top: a count of zero, then the top (26 bytes).
+        char none[2 + 26]; int16_t none_size = 26; float nx = 200, ny = -40;
+        memcpy(none, &none_size, 2); none[2] = SUNBEAM_HANDOFF;
+        memcpy(none + 3, &keep_wid, 4); memcpy(none + 7, &nx, 4); memcpy(none + 11, &ny, 4);
+        memcpy(none + 15, &ov, 4); memcpy(none + 19, &bd, 4); none[23] = 0; memcpy(none + 24, &top, 4);
+        assert(send(fd, none, sizeof(none), 0) == sizeof(none));
+        assert(sunbeam_read(fd, &status, 1) && status == 0);
+        assert(moved_to[4].x == 200 && moved_to[4].y == 30 && transforms[4].tx == -200 && transforms[4].ty == 40);
+    }
+    close(fd); pthread_join(thread, NULL);
 
     // A window minimized while leased (sunlight-12): off screen, it is scaled and lifted with the
     // rest but never given a place in the order, which from the Dock's connection would bring it back
@@ -334,9 +384,65 @@ int main(void) {
     close(fd); pthread_join(thread, NULL);
     assert(CGAffineTransformEqualToTransform(transforms[4], original) && levels[4] == -10);
 
+    // Two canvases (sunlight-41): a window one canvas left on show at a handoff is put back only by that
+    // canvas's next frame, not by the other display's canvas framing its own windows.
+    transforms[3] = other; levels[3] = 0; levels[6] = 0; levels[7] = 0; levels[4] = -10;
+    fd = start(&thread); fd2 = start(&second);
+    send_frame(fd, 4, false);
+    send_canvas_frame(fd2, 3, 6, 7);
+    {
+        char h[2 + 21]; int16_t h_size = 21; uint32_t hw = 3, hov = 7, hbd = 6; float hx = 1700, hy = 40;
+        memcpy(h, &h_size, 2); h[2] = SUNBEAM_HANDOFF;
+        memcpy(h + 3, &hw, 4); memcpy(h + 7, &hx, 4); memcpy(h + 11, &hy, 4); memcpy(h + 15, &hov, 4); memcpy(h + 19, &hbd, 4);
+        assert(send(fd2, h, sizeof(h), 0) == sizeof(h));
+        assert(sunbeam_read(fd2, &status, 1) && status == 0);
+    }
+    assert(levels[3] == SUNBEAM_FRONT);
+    send_frame(fd, 4, false);
+    assert(levels[3] == SUNBEAM_FRONT);   // the other canvas's frame leaves it on show
+    send_canvas_frame(fd2, 5, 6, 7);
+    assert(levels[3] == 0);               // its own canvas's frame without it puts it back to its own level
+    close(fd2); pthread_join(second, NULL);
+    close(fd); pthread_join(thread, NULL);
+    levels[4] = -10; levels[5] = 0; transforms[4] = original;
+
+    // Alpha (sunlight-40): set on leased windows only, relative to the window's own, and the window's own
+    // back when the lease ends, when a full frame leaves it out, and when it is handed off.
+    alphas[4] = 0.9f;
+    fd = start(&thread); send_frame(fd, 4, false);
+    assert(send_alpha(fd, 4, 0.5f) == 0 && fabsf(alphas[4] - 0.45f) < 1e-6);
+    assert(send_alpha(fd, 4, 0) == 0 && alphas[4] == 0);
+    assert(send_alpha(fd, 5, 0.2f) == 0 && alpha_writes[5] == 0);   // not this lease's: passed over
+    assert(send_alpha(fd, 4, 2) == 1 && alphas[4] == 0);              // out of range: refused, nothing set
+    assert(send_alpha(fd, 4, NAN) == 1);
+    send_frame(fd, 4, false);   // the lease goes on after a refusal
+    close(fd); pthread_join(thread, NULL);
+    assert(fabsf(alphas[4] - 0.9f) < 1e-6);
+    fd = start(&thread); send_frame(fd, 4, false);
+    assert(send_alpha(fd, 4, 0.25f) == 0 && fabsf(alphas[4] - 0.225f) < 1e-6);
+    assert(send(fd, handoff, 15, 0) == 15);
+    assert(sunbeam_read(fd, &status, 1) && status == 0);
+    assert(fabsf(alphas[4] - 0.9f) < 1e-6);   // the entered window is never left see-through
+    int alpha_before = alpha_writes[4];
+    close(fd); pthread_join(thread, NULL);
+    assert(alpha_writes[4] == alpha_before);   // and nothing more to put back
+    uint32_t solo4[1] = {4}, solo3[1] = {3};
+    levels[3] = 0; alphas[3] = 1;
+    fd = start(&thread);
+    uint32_t pair34[2] = {3, 4};
+    send_flagged(fd, pair34, 2, SUNBEAM_FRAME_FULL, 2);
+    assert(send_alpha(fd, 3, 0.5f) == 0 && alphas[3] == 0.5f);
+    send_flagged(fd, solo4, 1, SUNBEAM_FRAME_FULL, 2);   // 3 left out: back to its own
+    assert(alphas[3] == 1);
+    assert(send_alpha(fd, 3, 0.5f) == 0 && alphas[3] == 1);   // and no longer this lease's to change
+    (void)solo3;
+    close(fd); pthread_join(thread, NULL);
+    alphas[4] = 1;
+    transforms[4] = original; levels[4] = -10;
+
     fd = start(&thread); send_frame(fd, 4, false);
     // No heartbeat: Dock restores on the three-second lease timeout even if the client hangs.
     pthread_join(thread, NULL); close(fd);
     assert(CGAffineTransformEqualToTransform(transforms[4], original) && levels[4] == -10);
-    puts("PASS: fragmented frames, windows put back at native size only after the commit, disconnect, invalid transform, two leases at once, handoff (leased, unleased, missing, keeping windows on show), shadows (eased both ways, refused, cut short), flagged frames (partial, keepalive, full, app in front), the canvas lifted and lowered, a window minimized while leased never ordered, lease expiry, unmanaged isolation");
+    puts("PASS: fragmented frames, windows put back at native size only after the commit, disconnect, invalid transform, two leases at once, window alpha (leased only, relative, back on release, handoff and a full frame leaving it out), handoff (leased, unleased, missing, keeping windows on show, native places stopped at the menu bar), shadows (eased both ways, refused, cut short), flagged frames (partial, keepalive, full, app in front), the canvas lifted and lowered, a window minimized while leased never ordered, lease expiry, unmanaged isolation");
 }

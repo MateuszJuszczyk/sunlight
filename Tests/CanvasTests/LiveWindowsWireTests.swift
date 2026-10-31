@@ -35,10 +35,12 @@ final class LiveWindowsWireTests: XCTestCase {
         XCTAssertEqual(cardTopLeft.y, 10, accuracy: 0.001)
     }
 
-    func testPopScaleShrinksAboutTheTargetCentre() {
+    func testEffectScaleShrinksAboutTheTargetCentre() {
         let rect = CGRect(x: -600, y: 150, width: 900, height: 600)
         let camera = Camera(origin: CGPoint(x: -800, y: -100), zoom: 0.5)
-        let popped = LiveWindowsWire.Window(id: 42, worldRect: rect, inset: 0, camera: camera, pop: 0.9)
+        var bloom = WindowEffect.Frame()
+        bloom.scale = CGSize(width: 0.9, height: 0.9)
+        let popped = LiveWindowsWire.Window(id: 42, worldRect: rect, inset: 0, camera: camera, effect: bloom)
         let target = camera.toScreen(rect)
         // The centre of the on-screen rect is still the centre of the native surface.
         let centre = CGPoint(x: target.midX, y: target.midY).applying(popped.transform)
@@ -49,11 +51,45 @@ final class LiveWindowsWireTests: XCTestCase {
         XCTAssertEqual(corner.x, 0, accuracy: 0.001)
         XCTAssertEqual(corner.y, 0, accuracy: 0.001)
         XCTAssertEqual(popped.transform.a, 1 / (0.5 * 0.9), accuracy: 1e-9)
-        XCTAssertEqual(LiveWindowsWire.Window(id: 42, worldRect: rect, inset: 0, camera: camera, pop: 1),
+        XCTAssertEqual(LiveWindowsWire.Window(id: 42, worldRect: rect, inset: 0, camera: camera, effect: .identity),
                        LiveWindowsWire.Window(id: 42, worldRect: rect, inset: 0, camera: camera))
-        // Never smaller than a half, whatever is asked: the addition rejects an inverse scale past 100.
-        XCTAssertEqual(LiveWindowsWire.Window(id: 42, worldRect: rect, inset: 0, camera: camera, pop: 0).transform.a,
-                       1 / (0.5 * 0.5), accuracy: 1e-9)
+        // Never so small that the inverse passes the addition's limit of 100.
+        var gone = WindowEffect.Frame()
+        gone.scale = .zero
+        let tiny = LiveWindowsWire.Window(id: 42, worldRect: rect, inset: 0, camera: camera, effect: gone)
+        XCTAssertLessThanOrEqual(tiny.transform.a, 100)
+        XCTAssertLessThanOrEqual(tiny.transform.d, 100)
+    }
+
+    func testEffectUnfoldsFromTheTopAndMovesInScreenPoints() {
+        let rect = CGRect(x: 100, y: 100, width: 800, height: 400)
+        let camera = Camera(origin: .zero, zoom: 0.5)
+        var unfold = WindowEffect.Frame()
+        unfold.anchor = CGPoint(x: 0.5, y: 0)
+        unfold.scale = CGSize(width: 1, height: 0.5)
+        unfold.offset = CGVector(dx: 0, dy: 10)
+        let w = LiveWindowsWire.Window(id: 7, worldRect: rect, inset: 0, camera: camera, effect: unfold)
+        let target = camera.toScreen(rect)
+        // The top edge stays where it was, 10 screen points down; the window is half as tall.
+        let topLeft = CGPoint(x: target.minX, y: target.minY + 10).applying(w.transform)
+        XCTAssertEqual(topLeft.x, 0, accuracy: 0.001)
+        XCTAssertEqual(topLeft.y, 0, accuracy: 0.001)
+        let bottom = CGPoint(x: target.minX, y: target.minY + 10 + target.height * 0.5).applying(w.transform)
+        XCTAssertEqual(bottom.y, 400, accuracy: 0.001)
+        XCTAssertEqual(w.transform.a, 2, accuracy: 1e-9)
+        XCTAssertEqual(w.transform.d, 4, accuracy: 1e-9)
+    }
+
+    func testAlphaPacking() {
+        let data = LiveWindowsWire.alpha([(5, 0.5), (9, 2)])
+        // Length (int16), opcode, count, then id + float per window, values clamped to 0...1.
+        XCTAssertEqual(data.count, 2 + 1 + 1 + 16)
+        XCTAssertEqual(data[2], LiveWindowsWire.alpha)
+        XCTAssertEqual(data[3], 2)
+        let second = data.subdata(in: 16..<20).withUnsafeBytes { $0.loadUnaligned(as: Float.self) }
+        XCTAssertEqual(second, 1)
+        XCTAssertTrue(LiveWindowsWire.alphaInDock("sunlight-40"))
+        XCTAssertFalse(LiveWindowsWire.alphaInDock("sunlight-28"))
     }
 
     func testExtensionPackingAndLimits() throws {

@@ -31,6 +31,7 @@ extern CGError SLSGetWindowBounds(int cid, uint32_t wid, CGRect *frame);
 extern CGError SLSGetWindowTransform(int cid, uint32_t wid, CGAffineTransform *t);
 extern CGError SLSSetWindowTransform(int cid, uint32_t wid, CGAffineTransform t);
 extern CGError SLSOrderWindow(int cid, uint32_t wid, int order, uint32_t rel_wid);
+extern CGError SLSSetWindowLevel(int cid, uint32_t wid, int level);
 
 #include "sunbeam.h"
 
@@ -72,12 +73,24 @@ static void do_window_order(const char *fields, int length)
     SLSOrderWindow(SLSMainConnectionID(), wid, order, other);
 }
 
+/// A window's level, set at once (sunlight-27): the canvas lifts a sheet or prompt of the entered app
+/// above itself the moment the window server announces it, since every window is born under the canvas.
+static void do_window_level(const char *fields, int length)
+{
+    uint32_t wid; int32_t level;
+    if (length < 8) return;
+    memcpy(&wid, fields, 4); memcpy(&level, fields + 4, 4);
+    if (!wid || level < 0 || level > 2) return;
+    SLSSetWindowLevel(SLSMainConnectionID(), wid, level);
+}
+
 static void handle_message(int sockfd, const char *message, int length)
 {
     switch ((uint8_t)message[0]) {
     case SA_OPCODE_VERSION:      do_version(sockfd); break;
     case SA_OPCODE_WINDOW_MOVE:  do_window_move(message + 1, length - 1); break;
     case SA_OPCODE_WINDOW_ORDER: do_window_order(message + 1, length - 1); break;
+    case SA_OPCODE_WINDOW_LEVEL: do_window_level(message + 1, length - 1); break;
     default: break;   // unknown opcodes are ignored, not answered
     }
 }
