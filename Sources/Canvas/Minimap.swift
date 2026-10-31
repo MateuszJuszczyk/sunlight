@@ -77,8 +77,15 @@ final class MinimapPanel: NSView {
         if zoom.stringValue != readout { zoom.stringValue = readout }
     }
 
-    /// Shows or hides the card with a short fade and a slight scale about its centre (fade only under
-    /// Reduce Motion). Toggling again mid-way starts from wherever the card is on screen.
+    /// Whether the card belongs on screen: the setting is on and the canvas is what you're looking at,
+    /// not a window (or the flight into one), another app, the desktop, or Sunlight switched off.
+    nonisolated static func belongs(setting: Bool, inCanvas: Bool, showingDesktop: Bool, paused: Bool) -> Bool {
+        setting && inCanvas && !showingDesktop && !paused
+    }
+
+    /// Shows or hides the card with a quick pop about its centre: in from 90% past full size and back
+    /// (0.18 s), out to 90% (0.1 s); a plain fade under Reduce Motion. Toggling again mid-way starts
+    /// from wherever the card is on screen.
     func setShown(_ shown: Bool, animated: Bool = true) {
         guard let layer else { isHidden = !shown; return }
         let from = layer.presentation()
@@ -104,16 +111,26 @@ final class MinimapPanel: NSView {
                 self.layer?.transform = CATransform3DIdentity
             }
         }
+        let duration: CFTimeInterval = shown ? 0.18 : 0.1
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = fromOpacity
         fade.toValue = shown ? 1 : 0
-        let scale = CABasicAnimation(keyPath: "transform")
-        scale.fromValue = NSValue(caTransform3D: fromTransform)
-        scale.toValue = NSValue(caTransform3D: shown ? CATransform3DIdentity : hiddenTransform)
+        fade.duration = shown ? duration * 0.6 : duration
+        fade.timingFunction = CAMediaTimingFunction(name: shown ? .easeOut : .easeIn)
+        let scale = CAKeyframeAnimation(keyPath: "transform")
+        if shown {
+            // Just past full size, then settles: the pop.
+            scale.values = [fromTransform, transform(scale: 1.03), CATransform3DIdentity].map { NSValue(caTransform3D: $0) }
+            scale.keyTimes = [0, 0.6, 1]
+            scale.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut)]
+        } else {
+            scale.values = [fromTransform, hiddenTransform].map { NSValue(caTransform3D: $0) }
+            scale.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        }
+        scale.duration = duration
         let group = CAAnimationGroup()
-        group.animations = [fade, scale]
-        group.duration = shown ? 0.2 : 0.15
-        group.timingFunction = CAMediaTimingFunction(name: shown ? .easeOut : .easeIn)
+        group.animations = reduceMotion ? [fade] : [fade, scale]
+        group.duration = duration
         layer.opacity = shown ? 1 : 0
         layer.transform = shown ? CATransform3DIdentity : hiddenTransform
         layer.add(group, forKey: "minimap.show")
@@ -123,12 +140,18 @@ final class MinimapPanel: NSView {
     /// Bumped on every show or hide, so a hide that was overtaken doesn't hide the card when it ends.
     private var transition = 0
 
-    /// 97% about the centre: just enough to read as settling in, not as zooming.
+    private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    /// 90% about the centre: a small pop, not a zoom.
     private var hiddenTransform: CATransform3D {
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return CATransform3DIdentity }
+        reduceMotion ? CATransform3DIdentity : transform(scale: 0.9)
+    }
+
+    /// Scaled about the centre (the layer's anchor is its corner).
+    private func transform(scale: CGFloat) -> CATransform3D {
         let w = bounds.width / 2, h = bounds.height / 2
         var t = CATransform3DMakeTranslation(w, h, 0)
-        t = CATransform3DScale(t, 0.97, 0.97, 1)
+        t = CATransform3DScale(t, scale, scale, 1)
         return CATransform3DTranslate(t, -w, -h, 0)
     }
 

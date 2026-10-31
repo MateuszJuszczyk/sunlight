@@ -324,6 +324,7 @@ final class Desk {
     func focusedWindowChanged(pid: pid_t, element: AXUIElement) { following(pid).focusedWindowChanged(pid: pid, element: element) }
     func windowCreated(pid: pid_t, element: AXUIElement) { following(pid).windowCreated(pid: pid, element: element) }
     func windowMiniaturized(pid: pid_t, element: AXUIElement) { following(pid).windowMiniaturized(pid: pid, element: element) }
+    func windowMoved(pid: pid_t, element: AXUIElement) { following(pid).windowMoved(pid: pid, element: element) }
     func enteredWindowDestroyed(pid: pid_t) { following(pid).enteredWindowDestroyed(pid: pid) }
 
     // MARK: Displays coming and going

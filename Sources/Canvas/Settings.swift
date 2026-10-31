@@ -65,6 +65,7 @@ enum Settings {
     private static let magnetismStrengthKey = "CanvasMagnetismStrength"
     private static let magneticPolarityKey = "CanvasMagneticPolarity"
     private static let hapticsKey = "CanvasHaptics"
+    private static let windowEffectKey = "CanvasWindowEffect"
     private static let tileGapKey = "CanvasTileGap"
     private static let tidyColumnsKey = "TidyColumns"
     private static let tidySizingKey = "TidySizing"
@@ -205,6 +206,13 @@ enum Settings {
     /// Everything Tidy needs from here, in one value.
     static var tidyOptions: Tidy.Options {
         Tidy.Options(columns: tidyColumns, sizing: tidySizing, order: tidyOrder, spacing: tidySpacing.points(gap: tileGap))
+    }
+
+    /// Settings › Windows › Opening and closing: how windows open onto the canvas and leave it
+    /// (`WindowEffect`). Automatic picks per window from where it came from.
+    static var windowEffect: WindowEffect {
+        get { defaults.string(forKey: windowEffectKey).flatMap(WindowEffect.init(rawValue:)) ?? .automatic }
+        set { defaults.set(newValue.rawValue, forKey: windowEffectKey) }
     }
 
     /// A dragged window's edges and centre stick to its neighbours', with a guide drawn while they do.
@@ -1403,6 +1411,18 @@ private struct WindowsPane: View {
                               detail: "⌃⌥ with the arrows tiles halves, U I J K quarters, D F G thirds, ⏎ the whole screen. All of them are in the Window menu too.")
             }
             Section {
+                Picker(selection: model.bind({ Settings.windowEffect }, { Settings.windowEffect = $0 })) {
+                    ForEach(WindowEffect.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    RowLabel(title: "Effect",
+                             subtitle: Self.effectSubtitle(Settings.windowEffect),
+                             info: "Closing from the canvas plays the effect first, then presses the window’s close button. If the app keeps the window, for a “save changes?” sheet say, it opens again.")
+                }
+            } header: {
+                SectionHeader(title: "Opening and closing",
+                              detail: "With Reduce Motion on in System Settings › Accessibility › Display, every effect but None is a plain fade.")
+            }
+            Section {
                 Toggle(isOn: model.bind({ Settings.haptics }, { Settings.haptics = $0 })) {
                     RowLabel(title: "Trackpad haptics",
                              subtitle: "A tick as an edge catches a guide, a bump as windows meet.",
@@ -1422,6 +1442,17 @@ private struct WindowsPane: View {
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
+    }
+
+    static func effectSubtitle(_ effect: WindowEffect) -> String {
+        switch effect {
+        case .automatic: return "A window grows out of the spot you opened it at, slides out from behind the window it lands beside, or rises into place like the sun. Sheets unfold."
+        case .sunrise: return "Rises a few points into place as it brightens, and sinks and dims as it closes."
+        case .unfold: return "Rolls down from its top edge, and back up as it closes."
+        case .bloom: return "Springs up from a little smaller with a ring spreading from its edges."
+        case .dissolve: return "Fades in and out where it is."
+        case .none: return "Windows appear and disappear at once."
+        }
     }
 
     /// The nearest of the gaps on offer: one set with `defaults write` needn't be among them.

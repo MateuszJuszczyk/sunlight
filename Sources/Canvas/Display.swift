@@ -109,6 +109,11 @@ extension Camera {
         Camera(origin: CGPoint(x: origin.x - o.x / zoom, y: origin.y - o.y / zoom), zoom: zoom)
     }
 
+    /// The reverse: a global camera as the view whose top-left is at `viewOrigin` has it.
+    func inView(viewOrigin o: CGPoint) -> Camera {
+        Camera(origin: CGPoint(x: origin.x + o.x / zoom, y: origin.y + o.y / zoom), zoom: zoom)
+    }
+
     /// The identity camera of a view whose top-left is at `viewOrigin`: the display at 1:1, world where
     /// the screen is.
     static func home(viewOrigin o: CGPoint) -> Camera {

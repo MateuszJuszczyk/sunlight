@@ -11,6 +11,9 @@ final class ForegroundWatcher {
     var onFocusedWindowChanged: ((pid_t, AXUIElement) -> Void)?
     var onWindowCreated: ((pid_t, AXUIElement) -> Void)?
     var onWindowMiniaturized: ((pid_t, AXUIElement) -> Void)?
+    /// A window of the observed app moved or took a new size, as the app says, within a frame or two:
+    /// the canvas's map follows while the window is in use rather than on the way back.
+    var onWindowMoved: ((pid_t, AXUIElement) -> Void)?
     var onEnteredWindowDestroyed: ((pid_t) -> Void)?
 
     private var tokens: [NSObjectProtocol] = []
@@ -64,6 +67,7 @@ final class ForegroundWatcher {
         case kAXFocusedWindowChangedNotification: onFocusedWindowChanged?(pid, element)
         case kAXWindowCreatedNotification: onWindowCreated?(pid, element)
         case kAXWindowMiniaturizedNotification: onWindowMiniaturized?(pid, element)
+        case kAXWindowMovedNotification, kAXWindowResizedNotification: onWindowMoved?(pid, element)
         case kAXUIElementDestroyedNotification: onEnteredWindowDestroyed?(pid)
         default: break
         }
@@ -85,6 +89,8 @@ final class AXAppObserver {
         kAXFocusedWindowChangedNotification,
         kAXWindowCreatedNotification,
         kAXWindowMiniaturizedNotification,
+        kAXWindowMovedNotification,
+        kAXWindowResizedNotification,
     ]
 
     init?(pid: pid_t, handler: @escaping Handler) {
@@ -102,21 +108,42 @@ final class AXAppObserver {
     }
 
     func watch(window element: AXUIElement?) {
-        if let old = window {
-            AXObserverRemoveNotification(observer, old, kAXUIElementDestroyedNotification as CFString)
+        if let old = window, old != element {
+            let observer = observer
+            AXAppObserver.teardown.async { [weak self] in
+                AXObserverRemoveNotification(observer, old, kAXUIElementDestroyedNotification as CFString)
+                DispatchQueue.main.async {
+                    // Watched again meanwhile (into one window, another, and back): the removal just
+                    // undid its registration, so it's made again.
+                    guard let self, self.window == old else { return }
+                    self.add(kAXUIElementDestroyedNotification, to: old)
+                }
+            }
         }
         window = element
         if let element { add(kAXUIElementDestroyedNotification, to: element) }
     }
 
+    /// Where registrations are taken back. Each removal is a round trip to the app, which is usually
+    /// busy just then (it has been sent behind the canvas and is redrawing for See All) and answers
+    /// only at the messaging timeout: on the main thread that was up to a second at every return to
+    /// the canvas, more with more windows on show. Nothing waits for the answer.
+    private static let teardown = DispatchQueue(label: "canvas.ax.teardown", qos: .utility)
+
     deinit {
-        for name in AXAppObserver.appNotifications {
-            AXObserverRemoveNotification(observer, app, name as CFString)
-        }
-        if let window {
-            AXObserverRemoveNotification(observer, window, kAXUIElementDestroyedNotification as CFString)
-        }
+        // The run-loop source goes first, here: no callback can arrive after this, so the unretained
+        // refcon never outlives the observer. The registrations go on the teardown queue, which keeps
+        // the observer and the elements alive until it's done.
         CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        let observer = observer, app = app, window = window
+        AXAppObserver.teardown.async {
+            for name in AXAppObserver.appNotifications {
+                AXObserverRemoveNotification(observer, app, name as CFString)
+            }
+            if let window {
+                AXObserverRemoveNotification(observer, window, kAXUIElementDestroyedNotification as CFString)
+            }
+        }
     }
 
     /// A launching app, or an Electron/Chromium app enabling accessibility lazily, answers

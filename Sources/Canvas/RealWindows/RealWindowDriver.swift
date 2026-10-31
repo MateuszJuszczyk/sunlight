@@ -14,6 +14,9 @@ final class RealWindowDriver: @unchecked Sendable {
     private let lock = NSLock()
     /// The latest frame, and the shadow request to follow it (`LiveWindowsWire.shadow`), if any.
     private var pending: (frame: Data, shadow: Data?, full: Bool, at: CFTimeInterval)?
+    /// Window alphas still to send (`LiveWindowsWire.alpha`), the latest for each window: merged rather
+    /// than replaced with the frame, so a window's last alpha (back to 1) is never lost to a newer frame.
+    private var pendingAlpha: [CGWindowID: Float] = [:]
     /// The last full frame (every leased window): what a fresh lease gets first when the frame in hand
     /// is partial, so the windows that frame leaves out are taken too. Worker only.
     private var lastFull: Data?
@@ -28,9 +31,12 @@ final class RealWindowDriver: @unchecked Sendable {
     private var shadowInDock: Bool { LiveWindowsWire.shadowInDock(additionVersion) }
     private var partialFramesInDock: Bool { LiveWindowsWire.partialFramesInDock(additionVersion) }
     private var liftsCanvasInDock: Bool { LiveWindowsWire.liftsCanvasInDock(additionVersion) }
+    private var alphaInDock: Bool { LiveWindowsWire.alphaInDock(additionVersion) }
     /// A shadow request the add-on answered with a status: logged once per lease, then no more are
     /// sent on it. Shadows are cosmetic; the frames go on. Worker only.
     private var shadowDeclined = false
+    /// The same for an alpha request (sunlight-40). Worker only.
+    private var alphaDeclined = false
     private let socketPath: String
     var onFailure: ((String) -> Void)? // set once on main before submitting
     /// Why the last `restore` returned false: no lease and an add-on that needs one, the Dock's
@@ -61,6 +67,7 @@ final class RealWindowDriver: @unchecked Sendable {
         }
         connection = socket
         shadowDeclined = false
+        alphaDeclined = false
         return socket
     }
 
@@ -80,6 +87,20 @@ final class RealWindowDriver: @unchecked Sendable {
         }
     }
 
+    /// Window alphas on the lease in hand, when the add-on takes them; as cosmetic as shadows. Worker only.
+    private func sendAlpha(_ alphas: [CGWindowID: Float], on leased: LiveWindowsConnection) {
+        guard !alphas.isEmpty, alphaInDock, !alphaDeclined else { return }
+        do {
+            let status = try leased.request(LiveWindowsWire.alpha(alphas.map { ($0.key, $0.value) }))
+            if status != 0 {
+                alphaDeclined = true
+                NSLog("Rendering: the add-on declined an alpha request (\(LiveWindowsConnection.reason(for: status))); windows open and close without fading")
+            }
+        } catch {
+            NSLog("Rendering: an alpha request failed (\(error.localizedDescription))")
+        }
+    }
+
     private func isCurrent(_ epoch: Int) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return epoch == generation
@@ -88,7 +109,8 @@ final class RealWindowDriver: @unchecked Sendable {
     /// Delivers one frame, on the lease in hand or a new one, and its shadow request after it. A new
     /// lease knows no windows: a partial frame on it is preceded by the last full one, so the windows it
     /// leaves out (parked off screen) are leased again too. Worker only.
-    private func deliver(_ data: Data, shadow: Data?, full: Bool, submitted: CFTimeInterval, epoch: Int) throws {
+    private func deliver(_ data: Data, shadow: Data?, alphas: [CGWindowID: Float] = [:], full: Bool,
+                         submitted: CFTimeInterval, epoch: Int) throws {
         var retries = RealWindowDriver.leaseRetries
         while true {
             let fresh = connection == nil
@@ -103,6 +125,7 @@ final class RealWindowDriver: @unchecked Sendable {
                 }
                 if full { lastFull = data }
                 if let shadow { sendShadow(shadow, on: leased) }
+                sendAlpha(alphas, on: leased)
                 return
             } catch {
                 connection?.close(); connection = nil
@@ -119,9 +142,12 @@ final class RealWindowDriver: @unchecked Sendable {
     /// A frame, and with it the entered window's shadow for this tick (`LiveWindowsWire.shadow`), sent after
     /// the frame on the same lease when the add-on has shadows (sunlight-7). `full`: the frame carries
     /// every leased window (a legacy frame always does), so a fresh lease can start from it.
-    func submit(_ data: Data, shadow: Data? = nil, full: Bool = true) {
+    /// `alphas`: windows whose alpha changed this tick (a window opening or closing), sent after the
+    /// frame when the add-on takes them (sunlight-40).
+    func submit(_ data: Data, shadow: Data? = nil, full: Bool = true, alphas: [CGWindowID: Float] = [:]) {
         lock.lock()
         pending = (data, shadow, full, CACurrentMediaTime())
+        pendingAlpha.merge(alphas) { _, new in new }
         if scheduled { lock.unlock(); return }
         scheduled = true
         let epoch = generation
@@ -132,9 +158,11 @@ final class RealWindowDriver: @unchecked Sendable {
                 guard epoch == generation else { lock.unlock(); return }
                 guard let next = pending else { scheduled = false; lock.unlock(); return }
                 pending = nil
+                let alphas = pendingAlpha
+                pendingAlpha = [:]
                 lock.unlock()
                 do {
-                    try deliver(next.frame, shadow: next.shadow, full: next.full, submitted: next.at, epoch: epoch)
+                    try deliver(next.frame, shadow: next.shadow, alphas: alphas, full: next.full, submitted: next.at, epoch: epoch)
                 } catch {
                     connection?.close(); connection = nil
                     lock.lock()
@@ -182,8 +210,8 @@ final class RealWindowDriver: @unchecked Sendable {
     /// deactivating for it), if any: an add-on from sunlight-11 brings the canvas down under its windows.
     @discardableResult
     func restore(handoff: (CGWindowID, CGPoint)? = nil, overlay: CGWindowID = 0, backdrop: CGWindowID = 0,
-                 shadow: Data? = nil, keeping kept: [(CGWindowID, CGPoint)] = [], above: pid_t = 0) -> Bool {
-        lock.lock(); generation += 1; pending = nil; scheduled = false; lock.unlock()
+                 shadow: Data? = nil, keeping kept: [(CGWindowID, CGPoint)] = [], top: CGFloat? = nil, above: pid_t = 0) -> Bool {
+        lock.lock(); generation += 1; pending = nil; pendingAlpha = [:]; scheduled = false; lock.unlock()
         return queue.sync {
             defer { connection?.close(); connection = nil }
             lastRestoreFailure = nil
@@ -210,7 +238,8 @@ final class RealWindowDriver: @unchecked Sendable {
                 if let shadow { sendShadow(shadow, on: leased) }
                 if handoffInDock {
                     let keeping = LiveWindowsWire.keepsWindowsInDock(additionVersion) ? kept : []
-                    try leased.acknowledge(LiveWindowsWire.handoff(id, at: point, overlay: overlay, backdrop: backdrop, keeping: keeping))
+                    let top = LiveWindowsWire.clampsNatively(additionVersion) ? top : nil
+                    try leased.acknowledge(LiveWindowsWire.handoff(id, at: point, overlay: overlay, backdrop: backdrop, keeping: keeping, top: top))
                     lastRestoreKept = !keeping.isEmpty
                 } else {
                     try leased.acknowledge(LiveWindowsWire.handoff(id, at: point))
