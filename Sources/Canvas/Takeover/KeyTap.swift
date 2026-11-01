@@ -28,6 +28,8 @@ final class KeyTap: @unchecked Sendable {
         /// ⌘N is the canvas's to handle (`Command.newWindow`): the entered app's ⌘N makes a window and
         /// windows push each other.
         var placesNewWindow = false
+        /// Whether F11 still means Show Desktop (`Bindings`): rebound, F11 goes back to the Mac.
+        var showDesktopOnF11 = true
         /// Key codes whose keyDown we swallowed; their keyUp is swallowed too so apps never see an orphan.
         var swallowed = Set<Int64>()
     }
@@ -94,6 +96,11 @@ final class KeyTap: @unchecked Sendable {
     /// Whether ⌘N in the entered window is the canvas's (`Command.newWindow`).
     func update(placesNewWindow: Bool) {
         state.withLock { $0.placesNewWindow = placesNewWindow && $0.entered }
+    }
+
+    /// Settings › Shortcuts: F11 is Show Desktop until it is rebound, and then it is the Mac's again.
+    func update(showDesktopOnF11: Bool) {
+        state.withLock { $0.showDesktopOnF11 = showDesktopOnF11 }
     }
 
     // MARK: Tap thread
@@ -236,7 +243,7 @@ final class KeyTap: @unchecked Sendable {
         case missionControlKey where !command && !control && !option:
             return .send(.missionControl)
         case f11 where !command && !control && !option:
-            return .send(.showDesktop)
+            return state.showDesktopOnF11 ? .send(.showDesktop) : .pass
         default:
             return .pass
         }

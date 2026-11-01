@@ -66,8 +66,8 @@ enum CanvasApp {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Every display's canvas (`Desk`), which routes each command to the right one.
     private var canvas: Desk?
-    /// The ⌃⌥ placement keys (`TileMenu`): global, so they work in a real window too.
-    private var tileHotkeys: [Hotkey] = []
+    /// Every key Settings › Shortcuts has given a command (`Bindings`): global, so they work in a real window too.
+    private var hotkeys: [Hotkey] = []
     /// Sunlight Instructions: the basics, gestures, placing windows and keys, in one window.
     private var instructions: ManualController?
     private var trackpadPan: TrackpadPan?
@@ -102,6 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         AXWindow.installGlobalTimeout(1)
         updater = Updater()
         updater?.onFoundUpdate = { [weak self] version in self?.menuBar?.model.updateVersion = version }
+        // Settings › Trackpad's old See All choice becomes the two gestures' bindings before anything reads them.
+        Bindings.migrateIfNeeded()
         installMenu()
 
         let canvas = Desk()
@@ -114,6 +116,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if Settings.sunlightOn { installHotkeys(for: canvas) }
         NotificationCenter.default.addObserver(forName: Settings.experimentalFeaturesDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.experimentalFeaturesChanged() }
+        }
+        // A key or a gesture was changed in Settings: the hotkeys, the menus and the key tap follow.
+        NotificationCenter.default.addObserver(forName: Bindings.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.bindingsChanged() }
         }
         // Four-finger drag pans the canvas from anywhere, a window included. Not while Sunlight is off.
         let pan = TrackpadPan { [weak canvas] phase in
@@ -145,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let takeover = TakeoverMode(canvas: canvas)
         self.takeover = takeover
         canvas.takeover = takeover
+        updateKeyTap()
         installSignalHandlers()
         // An earlier Canvas restores the Mac as it quits; takeover starts once it has, so the two
         // never write the prefs over each other. The canvas is up meanwhile.
@@ -201,51 +208,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: The menu bar
 
-    /// The keys that reach Sunlight from any app: the ⌃⌥ placement layer and ⌃⌥S. (The canvas itself has
-    /// one key, the Mission Control key, which takeover's key tap claims.) Registered while Sunlight is
-    /// on; off, they're the Mac's again (`setSunlightOn`).
+    /// The keys that reach Sunlight from any app, as Settings › Shortcuts has them (`Bindings`): the ⌃⌥
+    /// placement layer by default, Strip Mode, Show Desktop, and the display keys. Registered while
+    /// Sunlight is on; off, they're the Mac's again (`setSunlightOn`). A command whose feature is off, or
+    /// whose key was removed, is skipped.
     private func installHotkeys(for canvas: Desk) {
-        // ⌃⌥ ← → ↑ ↓, U I J K, D F G, E T, ⏎, C: a window to a half, quarter, third, two-thirds, full,
-        // centre. One another app already holds (Rectangle, say) logs a failure and stays that app's.
-        tileHotkeys = TileMenu.shortcuts.map { shortcut in
-            Hotkey(keyCode: UInt32(shortcut.keyCode), modifiers: TileMenu.carbonModifiers) { [weak canvas] in
-                canvas?.tile(shortcut.preset)
+        hotkeys = Command.keyBindableCommands.compactMap { command in
+            guard command.isAvailable(arranging: Settings.arranging,
+                                      strip: Settings.stripModeEnabled,
+                                      displays: canvas.canvases.count > 1) else { return nil }
+            guard let shortcut = Bindings.shortcut(for: command) else { return nil }
+            return Hotkey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers) { [weak canvas] in
+                canvas?.perform(command)
             }
         }
-        // ⌃⌥ 2, 3, 4: the windows of the screen in view in columns. ⌃⌥A: everything, tidied. From a real
-        // window the canvas comes forward first. Only with arranging on (Settings › General › Experimental):
-        // off, the keys stay free for other apps.
-        if Settings.arranging {
-            tileHotkeys += TileMenu.arrangements.compactMap { a in
-                a.keyCode.map { code in
-                    Hotkey(keyCode: UInt32(code), modifiers: TileMenu.carbonModifiers) { [weak canvas] in
-                        canvas?.arrange(columns: a.columns, rows: a.rows)
-                    }
-                }
-            }
-            tileHotkeys.append(Hotkey(keyCode: UInt32(TileMenu.tidyKeyCode), modifiers: TileMenu.carbonModifiers) { [weak canvas] in
-                canvas?.tidy()
-            })
-        }
-        // ⌃⌥⇧ → ←: the window to the next or previous display, from the canvas or from inside it. Only with
-        // more than one display: with one, the keys stay free for other apps (`Desk.onDisplaysChanged`).
-        if canvas.canvases.count > 1 {
-            tileHotkeys += displayHotkeys(for: canvas)
-        }
-        // ⌃⌥S: strip mode on or off, from a real window too. Only with strip mode's flag on.
-        if Settings.stripModeEnabled {
-            tileHotkeys.append(Hotkey(keyCode: UInt32(TileMenu.stripKeyCode), modifiers: TileMenu.carbonModifiers) { [weak canvas] in
-                canvas?.toggleStripMode()
-            })
-        }
+        updateKeyTap()
     }
 
-    private func displayHotkeys(for canvas: Desk) -> [Hotkey] {
-        [(kVK_RightArrow, 1), (kVK_LeftArrow, -1)].map { code, step in
-            Hotkey(keyCode: UInt32(code), modifiers: TileMenu.displayCarbonModifiers) { [weak canvas] in
-                canvas?.moveToDisplay(step: step)
-            }
-        }
+    /// Show Desktop's F11 is claimed by the key tap while takeover runs, so the tap has to know whether
+    /// F11 still means Show Desktop; rebound, it goes back to the Mac and the new key comes from `Hotkey`.
+    private func updateKeyTap() {
+        let shortcut = Bindings.shortcut(for: .showDesktop)
+        takeover?.keyTap.update(showDesktopOnF11: shortcut?.keyCode == UInt32(kVK_F11) && shortcut?.modifiers == 0)
     }
 
     /// The panel's Sunlight switch. Off: the canvas goes (`CanvasController.setPaused`), the hotkeys are
@@ -256,11 +240,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard on != Settings.sunlightOn || canvas?.paused == on else { return }
         Settings.sunlightOn = on
         if on {
-            if let canvas, tileHotkeys.isEmpty { installHotkeys(for: canvas) }
+            if let canvas, hotkeys.isEmpty { installHotkeys(for: canvas) }
             takeover?.resumeInput()
             canvas?.setPaused(false)
         } else {
-            tileHotkeys = []
+            hotkeys = []
             takeover?.suspendInput()
             canvas?.setPaused(true)
         }
@@ -446,30 +430,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func experimentalFeaturesChanged() {
         rebuildWindowMenu()
         if Settings.sunlightOn, let canvas {
-            tileHotkeys = []
+            hotkeys = []
             installHotkeys(for: canvas)
         }
         refreshPanel()
     }
 
+    /// Settings › Shortcuts or › Trackpad: a key or a gesture changed. Everything built from the bindings
+    /// is rebuilt now rather than at the next launch: the Window menu's key equivalents, the global
+    /// hotkeys, the key tap's F11, and the panel's shortcut lines.
+    private func bindingsChanged() {
+        rebuildWindowMenu()
+        if Settings.sunlightOn, let canvas {
+            hotkeys = []
+            installHotkeys(for: canvas)
+        }
+        updateKeyTap()
+        refreshPanel()
+    }
+
     /// Strip Mode (while that feature is on) and Show Desktop: the top of the Window menu.
     private func canvasItems() -> [NSMenuItem] {
-        // The canvas's mode: free, or every app on one strip (⌃⌥S).
-        let strip = NSMenuItem(title: "Strip Mode", action: #selector(toggleStripMode), keyEquivalent: TileMenu.stripKey)
-        strip.keyEquivalentModifierMask = TileMenu.modifiers
+        // The canvas's mode: free, or every app on one strip. Its key, like every other, is Settings'.
+        let strip = NSMenuItem(title: "Strip Mode", action: #selector(toggleStripMode), keyEquivalent: "")
+        TileMenu.apply(Bindings.shortcut(for: .toggleStrip), to: strip)
         strip.target = self
-        // F11 reaches the canvas through the key tap while takeover runs; the item shows the key anyway.
-        let showDesktop = NSMenuItem(title: "Show Desktop", action: #selector(showDesktop),
-                                     keyEquivalent: String(Character(UnicodeScalar(NSF11FunctionKey)!)))
-        showDesktop.keyEquivalentModifierMask = []
+        // F11 reaches the canvas through the key tap while takeover runs; the item shows the key anyway,
+        // and follows a rebound key like the hotkey does.
+        let showDesktop = NSMenuItem(title: "Show Desktop", action: #selector(showDesktop), keyEquivalent: "")
+        TileMenu.apply(Bindings.shortcut(for: .showDesktop), to: showDesktop)
         showDesktop.target = self
         // A window to another display; greyed out with one display.
-        let arrow = { (code: Int) in String(Character(UnicodeScalar(UInt16(code))!)) }
-        let next = NSMenuItem(title: "Move to Next Display", action: #selector(moveToNextDisplay), keyEquivalent: arrow(NSRightArrowFunctionKey))
-        next.keyEquivalentModifierMask = TileMenu.displayModifiers
+        let next = NSMenuItem(title: "Move to Next Display", action: #selector(moveToNextDisplay), keyEquivalent: "")
+        TileMenu.apply(Bindings.shortcut(for: .nextDisplay), to: next)
         next.target = self
-        let previous = NSMenuItem(title: "Move to Previous Display", action: #selector(moveToPreviousDisplay), keyEquivalent: arrow(NSLeftArrowFunctionKey))
-        previous.keyEquivalentModifierMask = TileMenu.displayModifiers
+        let previous = NSMenuItem(title: "Move to Previous Display", action: #selector(moveToPreviousDisplay), keyEquivalent: "")
+        TileMenu.apply(Bindings.shortcut(for: .previousDisplay), to: previous)
         previous.target = self
         return (Settings.stripModeEnabled ? [strip, showDesktop] : [showDesktop]) + [.separator(), next, previous]
     }

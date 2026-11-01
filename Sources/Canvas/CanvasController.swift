@@ -1377,28 +1377,14 @@ final class CanvasController {
     }
 
     /// A four-finger drag pans the canvas from wherever the user is. From a window (or any other app)
-    /// the canvas comes to the front first, as with the Mission Control key, and the travel waits for it to arrive. A
-    /// four-finger tap (or, by Settings › Trackpad, a quick flick up) is the Mission Control key: from a
-    /// window, the canvas with everything fitted; done again on the canvas, back into the window it
-    /// came from.
+    /// the canvas comes to the front first, as with the Mission Control key, and the travel waits for it to arrive.
+    /// Gestures that fire instead of panning (a tap, a flick, a spread) arrive as `.gesture`, which
+    /// `Desk` turns into the command Settings › Trackpad gives them.
     func trackpadPan(_ phase: TrackpadPan.Phase) {
         let inFront = NSApp.isActive && activeProxy == nil
         switch phase {
-        case .seeAll:
-            NSLog("Pan: four-finger See All")
-            // A flick was a drag until this moment: the pan stops where it is, without coasting.
-            if inFront, pendingPan == nil { view.trackpadPanCancelled() }
-            pendingPan = nil
-            pendingPanEnded = false
-            let fromWindow = panBroughtCanvas
-            panBroughtCanvas = false
-            guard addingWidgets == nil, !isSetupShowing else { return }   // the desktop is in edit mode; Done comes back
-            // A flick from a window has already brought the canvas (its drag did): it still means See
-            // All, not back again. On the canvas, either gesture again goes back into the last window.
-            if fromWindow || !NSApp.isActive { showCanvas(fitAll: true) } else { toggle() }
-        case .spread:
-            NSLog("Pan: four-finger spread")
-            showDesktop()
+        case .gesture:
+            break   // Desk handles these; a canvas only sees them through `seeAll()` or its commands.
         case .began:
             NSLog("Pan: four-finger drag\(inFront ? "" : ", bringing the canvas back")")
             pendingPan = nil
@@ -1428,6 +1414,31 @@ final class CanvasController {
             }
             panBroughtCanvas = false
         }
+    }
+
+    /// A four-finger gesture bound to something else fired mid-drag: the pan stops where it is, without
+    /// coasting, and the gesture's command goes ahead.
+    func cancelTrackpadPan() {
+        if NSApp.isActive && activeProxy == nil && pendingPan == nil { view.trackpadPanCancelled() }
+        pendingPan = nil
+        pendingPanEnded = false
+        panBroughtCanvas = false
+    }
+
+    /// See Everything, from the four-finger tap or a flick (or the Mission Control key): from a window,
+    /// the canvas with everything fitted; done again on the canvas, back into the window it came from.
+    func seeAll() {
+        NSLog("Pan: See All")
+        // A flick was a drag until this moment: the pan stops where it is, without coasting.
+        if NSApp.isActive && activeProxy == nil && pendingPan == nil { view.trackpadPanCancelled() }
+        pendingPan = nil
+        pendingPanEnded = false
+        let fromWindow = panBroughtCanvas
+        panBroughtCanvas = false
+        guard addingWidgets == nil, !isSetupShowing else { return }   // the desktop is in edit mode; Done comes back
+        // A flick from a window has already brought the canvas (its drag did): it still means See
+        // All, not back again. On the canvas, either gesture again goes back into the last window.
+        if fromWindow || !NSApp.isActive { showCanvas(fitAll: true) } else { toggle() }
     }
 
     // MARK: Show Desktop

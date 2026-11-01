@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the canvas does with the pointer, trackpad and keys, and Sunlight's own keys: the reference
-/// Settings › Shortcuts shows (it was the menu bar icon's Keyboard & Trackpad submenu).
+/// Settings › Shortcuts used to be before it became editable, and Instructions › Keyboard Shortcuts.
 /// On the main actor, like `TileMenu`, whose key summaries it reads.
 @MainActor
 enum ShortcutReference {
@@ -10,20 +10,27 @@ enum ShortcutReference {
         let keys: String
     }
 
-    /// The canvas, in the order you'd learn it.
-    static let canvasRows: [Row] = [
-        Row(title: "Zoom", keys: "pinch · ⌥ or ⌘ scroll"),
-        Row(title: "Pan", keys: "two-finger scroll · four-finger drag"),
-        Row(title: "Move a window", keys: "drag"),
-        Row(title: "Flip a window's pole", keys: "P · its ⊕/⊖ button"),
-        Row(title: "Enter where it is", keys: "click · pinch in"),
-        Row(title: "Centre and enter", keys: "double-click · ⏎"),
-        Row(title: "Use a window at 1:1", keys: "click"),
-        Row(title: "See everything", keys: "four-finger tap"),
-        Row(title: "Canvas ↔ last window", keys: "Mission Control key · four-finger tap"),
-        Row(title: "Switch apps", keys: "⌘Tab · then ⌘← ⌘→"),
-        Row(title: "Switch the app's windows", keys: "⌘Tab, then ⌘` · ⌘↑ ⌘↓"),
-    ]
+    /// The canvas, in the order you'd learn it. Gestures and keys are read from `Bindings`, so a
+    /// rebound one shows here too.
+    static var canvasRows: [Row] {
+        let seeAll = gestureLine(for: .seeAll) ?? "—"
+        let desktop = [Bindings.shortcut(for: .showDesktop)?.label, gestureLine(for: .showDesktop)]
+            .compactMap { $0 }.joined(separator: " · ")
+        return [
+            Row(title: "Zoom", keys: "pinch · ⌥ or ⌘ scroll"),
+            Row(title: "Pan", keys: "two-finger scroll · \(gestureLine(for: .panCanvas) ?? "four-finger drag")"),
+            Row(title: "Move a window", keys: "drag"),
+            Row(title: "Flip a window's pole", keys: "P · its ⊕/⊖ button"),
+            Row(title: "Enter where it is", keys: "click · pinch in"),
+            Row(title: "Centre and enter", keys: "double-click · ⏎"),
+            Row(title: "Use a window at 1:1", keys: "click"),
+            Row(title: "See everything", keys: seeAll),
+            Row(title: "Canvas ↔ last window", keys: "Mission Control key · " + seeAll),
+            Row(title: "Show Desktop", keys: desktop.isEmpty ? "—" : desktop),
+            Row(title: "Switch apps", keys: "⌘Tab · then ⌘← ⌘→"),
+            Row(title: "Switch the app's windows", keys: "⌘Tab, then ⌘` · ⌘↑ ⌘↓"),
+        ]
+    }
 
     /// Sunlight's own commands, leaving out the experimental ones that are off (`Settings.arranging`,
     /// `Settings.stripModeEnabled`).
@@ -42,12 +49,20 @@ enum ShortcutReference {
         }
         rows.append(Row(title: "Move & Resize a window", keys: TileMenu.tileKeysSummary))
         if strip {
-            rows.append(Row(title: "Strip mode on or off", keys: "⌃⌥S · then ⌃⌥ arrows step"))
+            let key = Bindings.shortcut(for: .toggleStrip)?.label ?? "—"
+            rows.append(Row(title: "Strip mode on or off", keys: key + " · then the arrows step"))
         }
+        let desktop = [Bindings.shortcut(for: .showDesktop)?.label, gestureLine(for: .showDesktop)]
+            .compactMap { $0 }.joined(separator: " · ")
         rows += [
-            Row(title: "Show Desktop", keys: "F11 · four-finger spread"),
+            Row(title: "Show Desktop", keys: desktop.isEmpty ? "—" : desktop),
             Row(title: "Settings…", keys: "⌘,"),
         ]
         return rows
+    }
+
+    /// The gesture that does a command now, in the words the Trackpad pane uses.
+    private static func gestureLine(for command: Command) -> String? {
+        Bindings.gesture(doing: command)?.how.lowercased()
     }
 }

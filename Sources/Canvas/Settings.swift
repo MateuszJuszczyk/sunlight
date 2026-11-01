@@ -72,7 +72,6 @@ enum Settings {
     private static let tidySpacingKey = "TidySpacing"
     private static let tidyOrderKey = "TidyOrder"
     private static let panInertiaKey = "CanvasPanInertia"
-    private static let seeAllGestureKey = "CanvasSeeAllGesture"
     private static let zoomInertiaKey = "CanvasZoomInertia"
     private static let snapToWindowsKey = "CanvasSnapToWindows"
     private static let autoCenterAfterFourFingerPanKey = "autoCenterAfterFourFingerPan"
@@ -264,21 +263,24 @@ enum Settings {
 
     // MARK: Trackpad
 
-    /// The four-finger gesture that shows everything (and, done again on the canvas, goes back into
-    /// the last window), as the Mission Control key does. A tap leaves every four-finger drag a pan; a
-    /// swipe up, Mission Control's own gesture, takes the quick upward stroke from panning.
+    /// The four-finger gesture that shows everything, as the tutorial draws it. Settings › Trackpad
+    /// binds every gesture itself; this only answers which of its two pictures to play.
     enum SeeAllGesture: String, CaseIterable, Identifiable {
         case tap, swipeUp
         var id: Self { self }
         var title: String { self == .tap ? "Four-finger tap" : "Four-finger swipe up" }
         var how: String { self == .tap ? "Tap with four fingers" : "Swipe up with four fingers" }
     }
-    static let seeAllGestureDidChange = Notification.Name("SunlightSeeAllGestureDidChange")
     static var seeAllGesture: SeeAllGesture {
-        get { SeeAllGesture(rawValue: defaults.string(forKey: seeAllGestureKey) ?? "") ?? .tap }
+        get { Bindings.command(for: .fourFingerTap) == .seeAll ? .tap : .swipeUp }
         set {
-            defaults.set(newValue.rawValue, forKey: seeAllGestureKey)
-            NotificationCenter.default.post(name: seeAllGestureDidChange, object: nil)
+            if newValue == .tap {
+                Bindings.setGesture(.seeAll, for: .fourFingerTap)
+                Bindings.setGesture(nil, for: .swipeUp)
+            } else {
+                Bindings.setGesture(.seeAll, for: .swipeUp)
+                Bindings.setGesture(nil, for: .fourFingerTap)
+            }
         }
     }
 
@@ -1578,29 +1580,86 @@ private struct ArrangePane: View {
 
 // MARK: - Shortcuts
 
-/// What the canvas does with the pointer, trackpad and keys (`ShortcutReference`): a list to read, not
-/// to change. Also Instructions › Keyboard Shortcuts.
+/// Every key Sunlight takes, with a field to change it (`Bindings`): the ⌃⌥ placement layer, Arrange,
+/// Strip Mode, Show Desktop and the display keys. Menus that belong to the Mac keep their standard keys
+/// and are listed below, to read. Also Instructions › Keyboard Shortcuts.
 struct ShortcutsPane: View {
+    /// Bumped when a key changes, so every row's field redraws from the store.
+    @State private var revision = 0
+
     var body: some View {
         Form {
             Section {
-                ForEach(ShortcutReference.canvasRows, id: \.title) { row in
-                    LabeledContent(row.title) { Text(row.keys).foregroundStyle(.secondary) }
-                }
+                rows(for: .moveAndResize)
             } header: {
-                SectionHeader(title: "Canvas")
+                SectionHeader(title: "Move & Resize",
+                              detail: "One window to a slot. They work from inside a window too, so they are global: a key another app already holds stays that app’s.")
+            }
+            if Settings.arranging {
+                Section {
+                    rows(for: .arrange)
+                } header: {
+                    SectionHeader(title: "Arrange",
+                                  detail: "The windows of one screen in columns, and everything tidied.")
+                }
             }
             Section {
-                ForEach(ShortcutReference.commandRows, id: \.title) { row in
-                    LabeledContent(row.title) { Text(row.keys).foregroundStyle(.secondary) }
-                }
+                rows(for: .displays)
             } header: {
-                SectionHeader(title: "Sunlight",
-                              detail: "The ⌃⌥ keys work from inside a window too. Everything else is in the sun-rays icon in the menu bar.")
+                SectionHeader(title: "Displays",
+                              detail: "A window to the next or previous display. With one display, or with Multiple displays off, they do nothing.")
+            }
+            Section {
+                rows(for: .canvas)
+            } header: {
+                SectionHeader(title: "Canvas",
+                              detail: "Strip Mode and Show Desktop. Show Desktop is F11 by default; while Sunlight has taken over the Mac, its key tap hands F11 here, and puts it back when the key is changed.")
+            }
+            Section {
+                LabeledContent("Save Layout…") { Text("⌘S").foregroundStyle(.secondary) }
+                LabeledContent("Restore a layout") { Text("⌘1 – ⌘9").foregroundStyle(.secondary) }
+                LabeledContent("Settings…") { Text("⌘,").foregroundStyle(.secondary) }
+                LabeledContent("Sunlight Instructions") { Text("⌘?").foregroundStyle(.secondary) }
+            } header: {
+                SectionHeader(title: "Menus",
+                              detail: "The Mac’s own menu keys, kept as they are. Everything else is in the sun-rays icon in the menu bar.")
+            }
+            Section {
+                HStack {
+                    Spacer()
+                    Button("Restore Default Keys") {
+                        Bindings.resetShortcuts()
+                        revision += 1
+                    }
+                    .disabled(Command.keyBindableCommands.allSatisfy { Bindings.shortcut(for: $0) == $0.defaultShortcut })
+                }
             }
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
+        .onReceive(NotificationCenter.default.publisher(for: Bindings.didChange)) { _ in revision += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: Settings.experimentalFeaturesDidChange)) { _ in revision += 1 }
+    }
+
+    @ViewBuilder
+    private func rows(for group: Command.Group) -> some View {
+        ForEach(Command.allCases.filter { $0.group == group && $0.keyBindable }) { command in
+            LabeledContent {
+                ShortcutRecorder(command: command, shortcut: Bindings.shortcut(for: command)) { shortcut in
+                    Bindings.setShortcut(shortcut, for: command)
+                    revision += 1
+                }
+            } label: {
+                RowLabel(title: command.title, subtitle: subtitle(for: command))
+            }
+        }
+    }
+
+    private func subtitle(for command: Command) -> String? {
+        guard !command.isAvailable(arranging: Settings.arranging,
+                                   strip: Settings.stripModeEnabled,
+                                   displays: true) else { return nil }
+        return "Needs the feature turned on in General › Experimental."
     }
 }
 

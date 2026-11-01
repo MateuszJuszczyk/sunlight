@@ -24,11 +24,27 @@ final class TrackpadPan: @unchecked Sendable {
         /// Finger travel since the last update, in trackpad widths, y down. The content follows it.
         case changed(CGVector)
         case ended
-        /// A four-finger tap, as the fingers lift; or a flick up, mid-drag, after which the pan is over
-        /// with no `ended` to follow.
-        case seeAll
-        /// The four fingers spread apart (Show Desktop), once per touch. No pan comes with it.
-        case spread
+        /// A four-finger tap, a flick, a spread or a rebound drag: a gesture finished, and Settings ›
+        /// Trackpad says what it does. A flick's pan is over with no `ended` to follow.
+        case gesture(TrackpadGesture)
+    }
+
+    /// What the recognizer should watch for: the gestures Settings › Trackpad has given something to do.
+    /// A gesture with nothing bound is left alone, so the Mac or the pan gets it.
+    struct GestureConfig: Sendable, Equatable {
+        enum Drag: Sendable, Equatable {
+            /// Four fingers moving pan the canvas, as they always have.
+            case pan
+            /// The drag is bound to another command: fire it once, as the fingers start moving.
+            case fire
+            /// Nothing is bound: a four-finger drag does nothing at all.
+            case off
+        }
+
+        var tap = false
+        var spread = false
+        var flicks: Set<TrackpadGesture> = []
+        var drag: Drag = .pan
     }
 
     /// Centroid travel, in trackpad widths, before four fingers on the trackpad count as a drag. Keeps
@@ -86,10 +102,10 @@ final class TrackpadPan: @unchecked Sendable {
     @MainActor func start() {
         guard thread == nil else { return }
         TrackpadPan.shared = self
-        // Settings is the main actor's; the recognizer keeps its own copy of the one choice it needs.
+        // Settings is the main actor's; the recognizer keeps its own copy of the choices it needs.
         followSetting()
         settingToken = NotificationCenter.default.addObserver(
-            forName: Settings.seeAllGestureDidChange, object: nil, queue: .main
+            forName: Bindings.didChange, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.followSetting() }
         }
@@ -109,8 +125,8 @@ final class TrackpadPan: @unchecked Sendable {
     }
 
     @MainActor private func followSetting() {
-        let swipeUp = Settings.seeAllGesture == .swipeUp
-        state.withLock { $0.swipeUpSeesAll = swipeUp }
+        let config = Bindings.trackpadConfig()
+        state.withLock { $0.config = config }
     }
 
     // MARK: Touches
@@ -270,15 +286,17 @@ struct TrackpadRecognizer {
     /// The drag is held level (dy = 0) or plumb (dx = 0), decided as it begins; nil for a free
     /// (diagonal) drag.
     var lock: Lock?
-    /// Settings › Trackpad: a quick flick up is See All, instead of a tap.
-    var swipeUpSeesAll = false
+    /// Settings › Trackpad: which four-finger gestures have something to do.
+    var config = TrackpadPan.GestureConfig()
     /// The fingers moved or spread while no drag was under way: not a tap any more.
     var stirred = false
     /// Where the centroid was and when, as the drag began; a flick is measured from there.
     var dragOrigin: CGPoint?
     var dragBegan: CFAbsoluteTime = 0
-    /// The spread has fired; the rest of the touch does nothing.
+    /// The touch has fired its one gesture (a spread, a flick or a rebound drag); the rest does nothing.
     var swiped = false
+    /// The drag is bound to something other than panning, and fired as the fingers began moving.
+    var dragHandled = false
 
     enum Lock { case level, plumb }
     /// When the first finger of this touch landed; nil with no finger down.
@@ -302,11 +320,11 @@ struct TrackpadRecognizer {
         // A finger landed or lifted: whatever was under way is over. Four fingers that landed together,
         // never moved and lift again at once were a tap.
         guard ids.count == 4 else {
-            let tap = !swipeUpSeesAll && ids.count < 4 && fingers.count == 4 && last == nil && !swiped
+            let tap = config.tap && ids.count < 4 && fingers.count == 4 && last == nil && !swiped && !dragHandled
                 && !stirred && landedTogether && now - began <= TrackpadPan.tapDuration
-            return reset() + (tap ? [.seeAll] : [])
+            return reset() + (tap ? [.gesture(.fourFingerTap)] : [])
         }
-        if ids == fingers, swiped { return [] }
+        if ids == fingers, swiped || dragHandled { return [] }
         guard ids == fingers, let from = last ?? anchor else {
             let phases = reset()
             self.device = device
@@ -324,7 +342,7 @@ struct TrackpadRecognizer {
             let grown = spread - anchorSpread
             if grown >= TrackpadPan.spreadDistance {
                 swiped = true
-                return [.spread]
+                return config.spread ? [.gesture(.spread)] : []
             }
             if abs(grown) >= TrackpadPan.slop || hypot(travel.dx, travel.dy) >= TrackpadPan.slop { stirred = true }
             // Spreading fingers shift the centroid too (the thumb moves furthest); while the spread keeps
@@ -342,18 +360,22 @@ struct TrackpadRecognizer {
             } else {
                 lock = nil
             }
+            // A drag bound to a command fires once, as the fingers set off. Bound to nothing, it does
+            // nothing; bound to panning (the default), it pans below.
+            if config.drag != .pan {
+                dragHandled = true
+                last = nil
+                return phases + (config.drag == .fire ? [.gesture(.fourFingerDrag)] : [])
+            }
             phases.append(.began)
         }
-        if swipeUpSeesAll, let origin = dragOrigin, landedTogether, now - dragBegan <= TrackpadPan.flickWindow {
-            // Still early enough to be a flick: the whole travel so far, straight up and far enough,
-            // makes one. The pan it interrupts has moved the canvas a little; See All goes on from there.
-            let rise = centroid.y - origin.y   // the centroid's y goes up the trackpad
-            let run = abs(centroid.x - origin.x)
-            if rise >= TrackpadPan.swipeDistance, atan2(rise, run) >= .pi / 2 - TrackpadPan.axisLock {
-                swiped = true
-                last = nil   // the pan is over here; lifting the fingers won't `end` it again
-                return phases + [.seeAll]
-            }
+        if let origin = dragOrigin, landedTogether, now - dragBegan <= TrackpadPan.flickWindow,
+           let flick = flick(from: origin, to: centroid), config.flicks.contains(flick) {
+            // Still early enough to be a flick: the whole travel so far, straight and far enough. The
+            // pan it interrupts has moved the canvas a little; the gesture goes on from there.
+            swiped = true
+            last = nil   // the pan is over here; lifting the fingers won't `end` it again
+            return phases + [.gesture(flick)]
         }
         switch lock {
         case .level: travel.dy = 0
@@ -363,6 +385,18 @@ struct TrackpadRecognizer {
         phases.append(.changed(travel))
         last = centroid
         return phases
+    }
+
+    /// The flick a stroke from `origin` to `centroid` makes, if it is quick and straight enough. The
+    /// direction is the hand's: up is up the trackpad.
+    private func flick(from origin: CGPoint, to centroid: CGPoint) -> TrackpadGesture? {
+        let dx = centroid.x - origin.x
+        let dy = centroid.y - origin.y
+        guard hypot(dx, dy) >= TrackpadPan.swipeDistance else { return nil }
+        let angle = atan2(abs(dy), abs(dx))
+        if angle <= TrackpadPan.axisLock { return dx >= 0 ? .swipeRight : .swipeLeft }
+        if angle >= .pi / 2 - TrackpadPan.axisLock { return dy >= 0 ? .swipeUp : .swipeDown }
+        return nil
     }
 
     mutating func reset() -> [TrackpadPan.Phase] {
@@ -375,6 +409,7 @@ struct TrackpadRecognizer {
         stirred = false
         dragOrigin = nil
         swiped = false
+        dragHandled = false
         landedTogether = false
         anchorSpread = 0
         return phases

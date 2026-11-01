@@ -209,12 +209,36 @@ final class Desk {
         case .ended:
             (panning ?? current).trackpadPan(phase)
             panning = nil
-        case .seeAll:
-            // By Settings › Trackpad, a flick up can end a drag mid-way: that canvas gets it.
-            (panning ?? current).trackpadPan(phase)
+        case .gesture(let gesture):
+            // A flick can end a drag mid-way: that canvas gets the gesture, wherever the pan was.
+            let target = panning ?? current
+            panning?.cancelTrackpadPan()
             panning = nil
-        case .spread:
-            current.trackpadPan(phase)
+            guard let command = Bindings.command(for: gesture) else { return }
+            perform(command, on: target)
+        }
+    }
+
+    /// A command from a key, a gesture or a menu: the window, the screen, or the canvas it acts on.
+    func perform(_ command: Command, on target: CanvasController? = nil) {
+        let target = target ?? current
+        if let preset = command.preset {
+            target.tile(preset)
+            return
+        }
+        if let arrangement = command.arrangement {
+            target.arrange(columns: arrangement.columns, rows: arrangement.rows)
+            return
+        }
+        switch command {
+        case .tidy: target.tidy()
+        case .nextDisplay: target.moveToDisplay(step: 1)
+        case .previousDisplay: target.moveToDisplay(step: -1)
+        case .toggleStrip: target.toggleStripMode()
+        case .showDesktop: target.showDesktop()
+        case .seeAll: target.seeAll()
+        case .panCanvas: break
+        default: break
         }
     }
 

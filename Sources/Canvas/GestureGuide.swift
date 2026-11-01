@@ -19,9 +19,10 @@ enum GestureGuide {
             }
         }
 
-        /// The gestures in this tab, with See All shown the way Settings › Trackpad has it.
-        func gestures(seeAll: Settings.SeeAllGesture) -> [Gesture] {
-            Gesture.allCases.filter { $0.group == self && $0 != (seeAll == .tap ? .swipeUp : .fourFingerTap) }
+        /// The gestures in this tab. Both See Everything gestures show: Settings › Trackpad binds each
+        /// four-finger gesture separately, so neither is hidden.
+        var gestures: [Gesture] {
+            Gesture.allCases.filter { $0.group == self }
         }
 
         var footer: String? {
@@ -103,6 +104,17 @@ enum GestureGuide {
             case .click, .doubleClick, .drag: return 1
             case .secondaryClick, .pinch, .pinchIn, .scroll: return 2
             case .fourFingerDrag, .fourFingerTap, .swipeUp, .spread: return 4
+            }
+        }
+
+        /// The same gesture where Settings › Trackpad can bind it, if it is one of those.
+        var trackpadGesture: TrackpadGesture? {
+            switch self {
+            case .fourFingerTap: return .fourFingerTap
+            case .swipeUp: return .swipeUp
+            case .spread: return .spread
+            case .fourFingerDrag: return .fourFingerDrag
+            default: return nil
             }
         }
 
@@ -558,11 +570,13 @@ struct TrackpadPicture: View {
 }
 
 /// Settings › Trackpad: the three tabs of gestures, and the picture acting out the one picked or pointed
-/// at, as in System Settings › Trackpad.
+/// at, as in System Settings › Trackpad — and below them, what every four-finger gesture does, which is
+/// the person's to change.
 struct TrackpadPane: View {
     @State private var group: GestureGuide.Group = .pointAndClick
     @State private var gesture: GestureGuide.Gesture = .click
-    @State private var seeAll: Settings.SeeAllGesture = Settings.seeAllGesture
+    /// Bumped when a binding changes, so the rows and the picture's caption redraw.
+    @State private var revision = 0
 
     var body: some View {
         Form {
@@ -570,8 +584,8 @@ struct TrackpadPane: View {
                 VStack(spacing: 14) {
                     GestureStage(gesture: gesture)
                     VStack(spacing: 4) {
-                        Text(gesture.title).font(.headline)
-                        Text(gesture.line)
+                        Text(gesture.how).font(.headline)
+                        Text(actionTitle(gesture))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -585,9 +599,9 @@ struct TrackpadPane: View {
                 .padding(.top, 10)
             }
             Section {
-                ForEach(group.gestures(seeAll: seeAll)) { item in
+                ForEach(group.gestures, id: \.title) { item in
                     HStack {
-                        RowLabel(title: item.title, subtitle: item.how)
+                        RowLabel(title: item.how, subtitle: actionTitle(item))
                         Spacer()
                         if item == gesture {
                             Image(systemName: "play.fill")
@@ -621,26 +635,53 @@ struct TrackpadPane: View {
                 }
             }
             Section {
-                Picker("See everything with", selection: $seeAll) {
-                    ForEach(Settings.SeeAllGesture.allCases) { Text($0.title).tag($0) }
+                ForEach(TrackpadGesture.allCases) { item in
+                    Picker(selection: binding(for: item)) {
+                        Text("Nothing").tag(Command?.none)
+                        ForEach(Command.allCases) { command in
+                            Text(command.menuTitle).tag(Command?.some(command))
+                        }
+                    } label: {
+                        RowLabel(title: item.title, subtitle: item.how)
+                    }
                 }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
+                HStack {
+                    Spacer()
+                    Button("Restore Defaults") {
+                        Bindings.resetGestures()
+                        revision += 1
+                    }
+                    .disabled(TrackpadGesture.allCases.allSatisfy { Bindings.command(for: $0) == $0.defaultCommand })
+                }
             } header: {
-                SectionHeader(title: "See everything",
-                              detail: "Which four-finger gesture shows the whole canvas, and goes back into the last window when done again on the canvas, as the Mission Control key does.")
+                SectionHeader(title: "What they do",
+                              detail: "Every four-finger gesture can do any of Sunlight’s commands, or nothing. A flick that is given something fires as the fingers lift; a drag given something other than panning fires as they set off.")
             } footer: {
-                Text("A tap leaves every four-finger drag a pan, up included. A swipe up is Mission Control's own gesture, but a quick upward stroke then shows everything instead of panning; a slow drag up still pans.")
+                Text("A gesture with nothing bound is left to the Mac where it can be, and does nothing where it can’t. Clicks, two-finger scrolls and pinches stay the canvas’s own, as on the desktop.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)
-        .onChange(of: group) { gesture = group.gestures(seeAll: seeAll)[0] }
-        .onChange(of: seeAll) {
-            Settings.seeAllGesture = seeAll
-            if gesture == .fourFingerTap || gesture == .swipeUp { gesture = seeAll == .tap ? .fourFingerTap : .swipeUp }
-        }
+        .onChange(of: group) { gesture = group.gestures[0] }
+        .onReceive(NotificationCenter.default.publisher(for: Bindings.didChange)) { _ in revision += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: Settings.experimentalFeaturesDidChange)) { _ in revision += 1 }
+    }
+
+    /// The action a gesture does now, for its row and the picture's caption.
+    private func actionTitle(_ item: GestureGuide.Gesture) -> String {
+        guard let gesture = item.trackpadGesture else { return item.title }
+        return Bindings.command(for: gesture)?.title ?? "Nothing"
+    }
+
+    private func binding(for gesture: TrackpadGesture) -> Binding<Command?> {
+        Binding(
+            get: { Bindings.command(for: gesture) },
+            set: { command in
+                Bindings.setGesture(command, for: gesture)
+                revision += 1
+            }
+        )
     }
 }
