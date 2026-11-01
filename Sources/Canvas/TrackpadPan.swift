@@ -297,6 +297,8 @@ struct TrackpadRecognizer {
     var swiped = false
     /// The drag is bound to something other than panning, and fired as the fingers began moving.
     var dragHandled = false
+    /// A non-pan drag waits briefly for a configured flick to distinguish the two gestures.
+    var pendingDrag = false
 
     enum Lock { case level, plumb }
     /// When the first finger of this touch landed; nil with no finger down.
@@ -320,9 +322,10 @@ struct TrackpadRecognizer {
         // A finger landed or lifted: whatever was under way is over. Four fingers that landed together,
         // never moved and lift again at once were a tap.
         guard ids.count == 4 else {
+            let fireDrag = pendingDrag && config.drag == .fire
             let tap = config.tap && ids.count < 4 && fingers.count == 4 && last == nil && !swiped && !dragHandled
                 && !stirred && landedTogether && now - began <= TrackpadPan.tapDuration
-            return reset() + (tap ? [.gesture(.fourFingerTap)] : [])
+            return reset() + (fireDrag ? [.gesture(.fourFingerDrag)] : []) + (tap ? [.gesture(.fourFingerTap)] : [])
         }
         if ids == fingers, swiped || dragHandled { return [] }
         guard ids == fingers, let from = last ?? anchor else {
@@ -360,22 +363,35 @@ struct TrackpadRecognizer {
             } else {
                 lock = nil
             }
-            // A drag bound to a command fires once, as the fingers set off. Bound to nothing, it does
-            // nothing; bound to panning (the default), it pans below.
+            // When flicks are bound, let them resolve before firing a non-pan drag.
             if config.drag != .pan {
-                dragHandled = true
-                last = nil
-                return phases + (config.drag == .fire ? [.gesture(.fourFingerDrag)] : [])
+                if config.flicks.isEmpty {
+                    dragHandled = true
+                    return phases + (config.drag == .fire ? [.gesture(.fourFingerDrag)] : [])
+                }
+                pendingDrag = true
+            } else {
+                phases.append(.began)
             }
-            phases.append(.began)
         }
         if let origin = dragOrigin, landedTogether, now - dragBegan <= TrackpadPan.flickWindow,
            let flick = flick(from: origin, to: centroid), config.flicks.contains(flick) {
             // Still early enough to be a flick: the whole travel so far, straight and far enough. The
             // pan it interrupts has moved the canvas a little; the gesture goes on from there.
             swiped = true
+            pendingDrag = false
             last = nil   // the pan is over here; lifting the fingers won't `end` it again
             return phases + [.gesture(flick)]
+        }
+        if pendingDrag {
+            if now - dragBegan > TrackpadPan.flickWindow {
+                pendingDrag = false
+                dragHandled = true
+                last = nil
+                return config.drag == .fire ? [.gesture(.fourFingerDrag)] : []
+            }
+            last = centroid
+            return []
         }
         switch lock {
         case .level: travel.dy = 0
@@ -400,7 +416,7 @@ struct TrackpadRecognizer {
     }
 
     mutating func reset() -> [TrackpadPan.Phase] {
-        let phases: [TrackpadPan.Phase] = last == nil ? [] : [.ended]
+        let phases: [TrackpadPan.Phase] = last == nil || pendingDrag ? [] : [.ended]
         device = nil
         fingers = []
         anchor = nil
@@ -410,6 +426,7 @@ struct TrackpadRecognizer {
         dragOrigin = nil
         swiped = false
         dragHandled = false
+        pendingDrag = false
         landedTogether = false
         anchorSpread = 0
         return phases

@@ -20,9 +20,9 @@ struct Shortcut: Hashable, Codable, Sendable {
     }
 
     /// A key press as recorded: at least one of ⌃ ⌥ ⌘, so a global shortcut can't swallow ordinary typing.
-    init?(event: NSEvent) {
+    init?(event: NSEvent, allowUnmodified: Bool = false) {
         let flags = event.modifierFlags.intersection([.control, .option, .shift, .command])
-        guard !flags.intersection([.control, .option, .command]).isEmpty else { return nil }
+        guard allowUnmodified || !flags.intersection([.control, .option, .command]).isEmpty else { return nil }
         guard let key = event.charactersIgnoringModifiers, !key.isEmpty else { return nil }
         self.init(keyCode: UInt32(event.keyCode), modifiers: Shortcut.carbon(flags), key: key)
     }
@@ -48,6 +48,10 @@ struct Shortcut: Hashable, Codable, Sendable {
     /// Whether two shortcuts would claim the same key press, whatever character the layout gives it.
     func claimsSameKey(as other: Shortcut) -> Bool {
         keyCode == other.keyCode && modifiers == other.modifiers
+    }
+
+    func matches(_ event: NSEvent) -> Bool {
+        keyCode == UInt32(event.keyCode) && modifiers == Shortcut.carbon(event.modifierFlags)
     }
 
     /// What Settings and the menus show: ⌃⌥U, ⌃⌥←, ⇧⌘S.
@@ -98,6 +102,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
     case showDesktop
     case seeAll
     case panCanvas
+    case enterWindow, flipPolarity
 
     var id: String { rawValue }
 
@@ -128,7 +133,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
             return .arrange
         case .nextDisplay, .previousDisplay:
             return .displays
-        case .toggleStrip, .showDesktop, .seeAll, .panCanvas:
+        case .toggleStrip, .showDesktop, .seeAll, .panCanvas, .enterWindow, .flipPolarity:
             return .canvas
         }
     }
@@ -159,6 +164,8 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .showDesktop: return "Show Desktop"
         case .seeAll: return "See Everything"
         case .panCanvas: return "Pan the Canvas"
+        case .enterWindow: return "Enter Window"
+        case .flipPolarity: return "Flip Window Polarity"
         default: return rawValue
         }
     }
@@ -207,6 +214,8 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .toggleStrip: return key(kVK_ANSI_S, "s", tile)
         // F11 is the Mac's own Show Desktop; while takeover runs, the key tap forwards it here.
         case .showDesktop: return key(kVK_F11, arrow(NSF11FunctionKey), 0)
+        case .enterWindow: return key(kVK_Return, "\r", 0)
+        case .flipPolarity: return key(kVK_ANSI_P, "p", 0)
         case .seeAll, .panCanvas: return nil
         default: return nil
         }
@@ -214,6 +223,8 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
 
     /// Panning is continuous and cannot be represented by a single key press.
     var keyBindable: Bool { self != .panCanvas }
+    /// These act on the window under the pointer and only work while the canvas has focus.
+    var isCanvasLocal: Bool { self == .enterWindow || self == .flipPolarity }
 
     /// Whether the feature behind a command is on, and whether there is anywhere to move a window to.
     func isAvailable(arranging: Bool, strip: Bool, displays: Bool) -> Bool {
@@ -230,6 +241,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
 
     static var tiles: [Command] { allCases.filter { $0.preset != nil } }
     static var keyBindableCommands: [Command] { allCases.filter(\.keyBindable) }
+    static var globalKeyCommands: [Command] { keyBindableCommands.filter { !$0.isCanvasLocal } }
 }
 
 // MARK: - Four-finger gestures

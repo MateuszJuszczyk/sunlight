@@ -202,6 +202,28 @@ final class TrackpadRecognizerTests: XCTestCase {
         XCTAssertEqual(touch(line(from: CGPoint(x: 0.2, y: 0.5), to: CGPoint(x: 0.6, y: 0.5)), config: config), [])
     }
 
+    func testBoundFlickStillWorksWhenDragHasAnotherAction() {
+        var config = standard
+        config.drag = .fire
+        config.flicks = [.swipeUp]
+        let phases = touch(line(from: CGPoint(x: 0.5, y: 0.2), to: CGPoint(x: 0.5, y: 0.5)), config: config)
+        XCTAssertEqual(phases, [.gesture(.swipeUp)])
+    }
+
+    func testNonFlickDragFiresOnceWhenFlickIsAlsoBound() {
+        var config = standard
+        config.drag = .fire
+        config.flicks = [.swipeUp]
+        let phases = touch(line(from: CGPoint(x: 0.2, y: 0.5), to: CGPoint(x: 0.6, y: 0.5)), config: config)
+        XCTAssertEqual(phases, [.gesture(.fourFingerDrag)])
+        let slow = touch(line(from: CGPoint(x: 0.2, y: 0.5), to: CGPoint(x: 0.6, y: 0.5), steps: 20),
+                         interval: 0.1, config: config)
+        XCTAssertEqual(slow, [.gesture(.fourFingerDrag)])
+        config.drag = .off
+        XCTAssertEqual(touch(line(from: CGPoint(x: 0.5, y: 0.2), to: CGPoint(x: 0.5, y: 0.5)), config: config),
+                       [.gesture(.swipeUp)])
+    }
+
     // MARK: Spread
 
     /// One four-finger touch with the centroid held still and the fingers' spread going from `a` to `b`.

@@ -37,7 +37,7 @@ final class SettingsTests: XCTestCase {
     func testNavigationPreferencesDefaultAndRoundTrip() async {
         await MainActor.run {
             let defaults = UserDefaults.standard
-            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior",
+            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior",
                         "windowSnapStrength", "cameraPanSensitivity"]
             let saved = keys.map { defaults.object(forKey: $0) }
             defer {
@@ -49,6 +49,12 @@ final class SettingsTests: XCTestCase {
             keys.forEach { defaults.removeObject(forKey: $0) }
             XCTAssertTrue(Settings.autoCenterAfterFourFingerPan)
             XCTAssertEqual(Settings.singleClickBehavior, .centerWindow)
+            XCTAssertEqual(Settings.doubleClickBehavior, .enterAtClickPosition)
+            Settings.singleClickBehavior = .enterAtClickPosition
+            XCTAssertEqual(Settings.doubleClickBehavior, .centerWindow)
+            Settings.doubleClickBehavior = .none
+            Settings.singleClickBehavior = .centerWindow
+            XCTAssertEqual(Settings.doubleClickBehavior, .none)
             XCTAssertEqual(Settings.windowSnapStrength, .strong)
             XCTAssertEqual(Settings.cameraPanSensitivity, .high)
             XCTAssertEqual(Settings.cameraPanSensitivity.multiplier, 1.35)

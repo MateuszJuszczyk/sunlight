@@ -2219,11 +2219,13 @@ final class CanvasView: NSView {
     }
 
     private func performWindowClick(_ proxy: WindowProxy, at point: CGPoint, offset: CGPoint, double: Bool) {
-        let center = (Settings.singleClickBehavior == .centerWindow) != double
-        if center {
+        switch double ? Settings.doubleClickBehavior : Settings.singleClickBehavior {
+        case .centerWindow:
             onCenteredClick?(proxy, double)
-        } else {
+        case .enterAtClickPosition:
             onClickEnter?(proxy, point, offset, double)
+        case .none:
+            break
         }
     }
 
@@ -2603,6 +2605,10 @@ final class CanvasView: NSView {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if holdsKey?(event) == true { return true }
+        if !floorFocused && [Command.enterWindow, .flipPolarity].contains(where: { Bindings.shortcut(for: $0)?.matches(event) == true }) {
+            keyDown(with: event)
+            return true
+        }
         return super.performKeyEquivalent(with: event)
     }
 
@@ -2621,23 +2627,22 @@ final class CanvasView: NSView {
             onFloorCommand?(command)
             return
         }
-        switch Int(event.keyCode) {
-        case kVK_Escape:
-            break   // nothing, and no beep: seeing everything is the four-finger tap, or the minimap's Fit
-        case kVK_Return, kVK_ANSI_KeypadEnter:
+        let enter = Bindings.shortcut(for: .enterWindow)
+        let defaultKeypadEnter = enter == Command.enterWindow.defaultShortcut
+            && Int(event.keyCode) == kVK_ANSI_KeypadEnter
+            && Shortcut.carbon(event.modifierFlags) == 0
+        if enter?.matches(event) == true || defaultKeypadEnter {
             // Over a widget: open it. Anywhere else: enter the window under the pointer, or the top one.
             guard let p = hovered ?? proxy(at: camera.toWorld(pointerTopLeft)) ?? proxies.last(where: { $0.kind == .window })
-            else { break }
+            else { return }
             switch p.kind {
             case .widget: onPress?(p, nil)
             case .window: onHandoff?(p)
             }
-        case kVK_ANSI_P:
-            // Over a window with a pole, plain P flips it (Settings › Windows › Magnetic polarity).
-            guard let p = hovered, p.showsPolarity, event.modifierFlags.intersection([.command, .option, .control]).isEmpty
-            else { super.keyDown(with: event); break }
+        } else if Bindings.shortcut(for: .flipPolarity)?.matches(event) == true {
+            guard let p = hovered, p.showsPolarity else { super.keyDown(with: event); return }
             onFlipPolarity?(p)
-        default:
+        } else if Int(event.keyCode) != kVK_Escape {
             super.keyDown(with: event)
         }
     }

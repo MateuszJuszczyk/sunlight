@@ -68,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var canvas: Desk?
     /// Every key Settings › Shortcuts has given a command (`Bindings`): global, so they work in a real window too.
     private var hotkeys: [Hotkey] = []
+    private var recordingShortcut = false
     /// Sunlight Instructions: the basics, gestures, placing windows and keys, in one window.
     private var instructions: ManualController?
     private var trackpadPan: TrackpadPan?
@@ -120,6 +121,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // A key or a gesture was changed in Settings: the hotkeys, the menus and the key tap follow.
         NotificationCenter.default.addObserver(forName: Bindings.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.bindingsChanged() }
+        }
+        NotificationCenter.default.addObserver(forName: .shortcutRecordingChanged, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let recording = note.object as? Bool else { return }
+                self.recordingShortcut = recording
+                self.hotkeys = []
+                if !recording, Settings.sunlightOn, let canvas = self.canvas { self.installHotkeys(for: canvas) }
+                self.updateKeyTap()
+            }
         }
         // Four-finger drag pans the canvas from anywhere, a window included. Not while Sunlight is off.
         let pan = TrackpadPan { [weak canvas] phase in
@@ -213,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Sunlight is on; off, they're the Mac's again (`setSunlightOn`). A command whose feature is off, or
     /// whose key was removed, is skipped.
     private func installHotkeys(for canvas: Desk) {
-        hotkeys = Command.keyBindableCommands.compactMap { command in
+        hotkeys = Command.globalKeyCommands.compactMap { command in
             guard command.isAvailable(arranging: Settings.arranging,
                                       strip: Settings.stripModeEnabled,
                                       displays: canvas.canvases.count > 1) else { return nil }
@@ -229,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// F11 still means Show Desktop; rebound, it goes back to the Mac and the new key comes from `Hotkey`.
     private func updateKeyTap() {
         let shortcut = Bindings.shortcut(for: .showDesktop)
-        takeover?.keyTap.update(showDesktopOnF11: shortcut?.keyCode == UInt32(kVK_F11) && shortcut?.modifiers == 0)
+        takeover?.keyTap.update(showDesktopOnF11: !recordingShortcut && shortcut?.keyCode == UInt32(kVK_F11) && shortcut?.modifiers == 0)
     }
 
     /// The panel's Sunlight switch. Off: the canvas goes (`CanvasController.setPaused`), the hotkeys are
@@ -240,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard on != Settings.sunlightOn || canvas?.paused == on else { return }
         Settings.sunlightOn = on
         if on {
-            if let canvas, hotkeys.isEmpty { installHotkeys(for: canvas) }
+            if let canvas, hotkeys.isEmpty, !recordingShortcut { installHotkeys(for: canvas) }
             takeover?.resumeInput()
             canvas?.setPaused(false)
         } else {
@@ -429,7 +439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// the hotkeys and the menu bar panel follow; the canvas's right-click menus are built as they open.
     private func experimentalFeaturesChanged() {
         rebuildWindowMenu()
-        if Settings.sunlightOn, let canvas {
+        if Settings.sunlightOn, !recordingShortcut, let canvas {
             hotkeys = []
             installHotkeys(for: canvas)
         }
@@ -441,7 +451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// hotkeys, the key tap's F11, and the panel's shortcut lines.
     private func bindingsChanged() {
         rebuildWindowMenu()
-        if Settings.sunlightOn, let canvas {
+        if Settings.sunlightOn, !recordingShortcut, let canvas {
             hotkeys = []
             installHotkeys(for: canvas)
         }

@@ -1,6 +1,10 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    static let shortcutRecordingChanged = Notification.Name("SunlightShortcutRecordingChanged")
+}
+
 /// A shortcut field as System Settings draws one: click it, press the keys, done. Escape leaves the
 /// shortcut as it was, Delete removes it, and a key another command already holds is refused with a line
 /// saying whose it is. The local monitor is what makes any combination recordable: it sees the key press
@@ -68,7 +72,7 @@ struct ShortcutRecorder: View {
             default:
                 break
             }
-            guard let shortcut = Shortcut(event: event) else {
+            guard let shortcut = Shortcut(event: event, allowUnmodified: command.isCanvasLocal) else {
                 error = "Add ⌃, ⌥ or ⌘ to the key."
                 NSSound.beep()
                 return
@@ -97,6 +101,7 @@ private final class ShortcutRecorderModel: ObservableObject {
         guard monitor == nil else { return }
         self.handle = handle
         isRecording = true
+        NotificationCenter.default.post(name: .shortcutRecordingChanged, object: true)
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown]) { [weak self] event in
             guard let self else { return event }
             if event.type == .leftMouseDown {
@@ -109,9 +114,11 @@ private final class ShortcutRecorderModel: ObservableObject {
     }
 
     func stop() {
+        guard isRecording else { return }
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         handle = nil
         isRecording = false
+        NotificationCenter.default.post(name: .shortcutRecordingChanged, object: false)
     }
 }

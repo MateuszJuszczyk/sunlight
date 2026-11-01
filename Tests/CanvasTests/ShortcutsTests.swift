@@ -35,6 +35,10 @@ final class ShortcutsTests: XCTestCase {
         XCTAssertNil(Bindings.shortcut(for: .centerTwoThirds))
         XCTAssertNil(Bindings.shortcut(for: .seeAll))
         XCTAssertNil(Bindings.shortcut(for: .panCanvas))
+        XCTAssertEqual(Bindings.shortcut(for: .enterWindow)?.label, "⏎")
+        XCTAssertEqual(Bindings.shortcut(for: .flipPolarity)?.label, "P")
+        XCTAssertFalse(Command.globalKeyCommands.contains(.enterWindow))
+        XCTAssertFalse(Command.globalKeyCommands.contains(.flipPolarity))
     }
 
     func testTheSummariesReadTheSameAsBeforeUntilAKeyChanges() {
@@ -50,7 +54,7 @@ final class ShortcutsTests: XCTestCase {
         autoreleasepool {
             let hotkey = Hotkey(keyCode: UInt32(kVK_ANSI_Z), modifiers: UInt32(controlKey | optionKey | shiftKey)) {}
             released = hotkey
-            XCTAssertNotNil(released)
+            withExtendedLifetime(hotkey) { XCTAssertNotNil(released) }
         }
         XCTAssertNil(released)
     }
@@ -85,6 +89,8 @@ final class ShortcutsTests: XCTestCase {
                                      characters: "L", charactersIgnoringModifiers: "L",
                                      isARepeat: false, keyCode: UInt16(kVK_ANSI_L))!
         XCTAssertNil(Shortcut(event: event))
+        XCTAssertEqual(Shortcut(event: event, allowUnmodified: true)?.label, "⇧L")
+        XCTAssertTrue(Shortcut(event: event, allowUnmodified: true)!.matches(event))
         let withOption = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.option],
                                           timestamp: 0, windowNumber: 0, context: nil,
                                           characters: "l", charactersIgnoringModifiers: "l",

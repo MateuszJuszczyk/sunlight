@@ -76,6 +76,7 @@ enum Settings {
     private static let snapToWindowsKey = "CanvasSnapToWindows"
     private static let autoCenterAfterFourFingerPanKey = "autoCenterAfterFourFingerPan"
     private static let singleClickBehaviorKey = "singleClickBehavior"
+    private static let doubleClickBehaviorKey = "doubleClickBehavior"
     private static let windowSnapStrengthKey = "windowSnapStrength"
     private static let cameraPanSensitivityKey = "cameraPanSensitivity"
     private static let rememberCanvasKey = "CanvasRemember"
@@ -315,14 +316,29 @@ enum Settings {
     }
 
     enum SingleClickBehavior: String, CaseIterable {
-        case centerWindow, enterAtClickPosition
+        case centerWindow, enterAtClickPosition, none
 
-        var title: String { self == .centerWindow ? "Center window" : "Enter at click position" }
+        var title: String {
+            switch self {
+            case .centerWindow: return "Center window"
+            case .enterAtClickPosition: return "Enter at click position"
+            case .none: return "Nothing"
+            }
+        }
     }
 
     static var singleClickBehavior: SingleClickBehavior {
         get { defaults.string(forKey: singleClickBehaviorKey).flatMap(SingleClickBehavior.init(rawValue:)) ?? .centerWindow }
         set { defaults.set(newValue.rawValue, forKey: singleClickBehaviorKey) }
+    }
+
+    /// Existing installations used the opposite of the single-click action for a double-click.
+    static var doubleClickBehavior: SingleClickBehavior {
+        get {
+            defaults.string(forKey: doubleClickBehaviorKey).flatMap(SingleClickBehavior.init(rawValue:))
+                ?? (singleClickBehavior == .enterAtClickPosition ? .centerWindow : .enterAtClickPosition)
+        }
+        set { defaults.set(newValue.rawValue, forKey: doubleClickBehaviorKey) }
     }
 
     enum WindowSnapStrength: String, CaseIterable {
@@ -1219,6 +1235,9 @@ private struct CanvasPane: View {
                 Picker("Single-click window", selection: model.bind({ Settings.singleClickBehavior }, { Settings.singleClickBehavior = $0 })) {
                     ForEach(Settings.SingleClickBehavior.allCases, id: \.self) { Text($0.title) }
                 }
+                Picker("Double-click window", selection: model.bind({ Settings.doubleClickBehavior }, { Settings.doubleClickBehavior = $0 })) {
+                    ForEach(Settings.SingleClickBehavior.allCases, id: \.self) { Text($0.title) }
+                }
                 Toggle(isOn: model.bind({ Settings.panInertia }, { Settings.panInertia = $0 })) {
                     RowLabel(title: "Inertia when panning",
                              subtitle: "A four-finger or scroll pan keeps gliding for a moment after the fingers lift.")
@@ -1656,6 +1675,7 @@ struct ShortcutsPane: View {
     }
 
     private func subtitle(for command: Command) -> String? {
+        if command.isCanvasLocal { return "Works while the canvas is focused." }
         guard !command.isAvailable(arranging: Settings.arranging,
                                    strip: Settings.stripModeEnabled,
                                    displays: true) else { return nil }

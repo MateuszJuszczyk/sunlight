@@ -635,10 +635,21 @@ struct TrackpadPane: View {
                 }
             }
             Section {
+                Picker("Single-click window", selection: clickBinding(double: false)) {
+                    ForEach(Settings.SingleClickBehavior.allCases, id: \.self) { Text($0.title) }
+                }
+                Picker("Double-click window", selection: clickBinding(double: true)) {
+                    ForEach(Settings.SingleClickBehavior.allCases, id: \.self) { Text($0.title) }
+                }
+            } header: {
+                SectionHeader(title: "Window clicks",
+                              detail: "The first click acts immediately, including when followed by a second click. These choices also apply to a mouse.")
+            }
+            Section {
                 ForEach(TrackpadGesture.allCases) { item in
                     Picker(selection: binding(for: item)) {
                         Text("Nothing").tag(Command?.none)
-                        ForEach(Command.allCases.filter { $0 != .panCanvas || item == .fourFingerDrag }) { command in
+                        ForEach(Command.allCases.filter { !$0.isCanvasLocal && ($0 != .panCanvas || item == .fourFingerDrag) }) { command in
                             Text(command.menuTitle).tag(Command?.some(command))
                         }
                     } label: {
@@ -655,7 +666,7 @@ struct TrackpadPane: View {
                 }
             } header: {
                 SectionHeader(title: "What they do",
-                              detail: "Choose what each gesture does, or leave it unbound. Panning needs a continuous four-finger drag. A flick fires as the fingers lift; a drag given another action fires as they set off.")
+                              detail: "Choose what each gesture does, or leave it unbound. Panning needs a continuous four-finger drag. When flicks are bound, another drag action waits briefly to distinguish them.")
             } footer: {
                 Text("A gesture with nothing bound is left to the Mac where it can be, and does nothing where it can’t. Clicks, two-finger scrolls and pinches stay the canvas’s own, as on the desktop.")
                     .font(.callout)
@@ -671,6 +682,8 @@ struct TrackpadPane: View {
 
     /// The action a gesture does now, for its row and the picture's caption.
     private func actionTitle(_ item: GestureGuide.Gesture) -> String {
+        if item == .click { return Settings.singleClickBehavior.title }
+        if item == .doubleClick { return Settings.doubleClickBehavior.title }
         guard let gesture = item.trackpadGesture else { return item.title }
         return Bindings.command(for: gesture)?.title ?? "Nothing"
     }
@@ -680,6 +693,16 @@ struct TrackpadPane: View {
             get: { Bindings.command(for: gesture) },
             set: { command in
                 Bindings.setGesture(command, for: gesture)
+                revision += 1
+            }
+        )
+    }
+
+    private func clickBinding(double: Bool) -> Binding<Settings.SingleClickBehavior> {
+        Binding(
+            get: { double ? Settings.doubleClickBehavior : Settings.singleClickBehavior },
+            set: { value in
+                if double { Settings.doubleClickBehavior = value } else { Settings.singleClickBehavior = value }
                 revision += 1
             }
         )
