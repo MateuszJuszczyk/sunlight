@@ -318,7 +318,7 @@ enum Settings {
     }
 
     static var trackpadCameraSensitivity: Double {
-        get { sensitivity("TrackpadCameraSensitivity", default: Double(cameraPanSensitivity.multiplier), range: 0.25...3) }
+        get { sensitivity("TrackpadCameraSensitivity", default: Double(cameraPanSensitivity.multiplier) / 1.35, range: 0.25...3) }
         set { defaults.set(min(3, max(0.25, newValue)), forKey: "TrackpadCameraSensitivity") }
     }
 

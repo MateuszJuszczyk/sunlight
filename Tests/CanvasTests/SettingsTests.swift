@@ -88,10 +88,14 @@ final class SettingsTests: XCTestCase {
             XCTAssertEqual(Settings.windowSnapStrength, .strong)
             XCTAssertEqual(Settings.cameraPanSensitivity, .high)
             XCTAssertEqual(Settings.cameraPanSensitivity.multiplier, 1.35)
-            XCTAssertEqual(Settings.trackpadCameraSensitivity, 1.35)
+            XCTAssertEqual(Settings.trackpadCameraSensitivity, 1, accuracy: 0.0001)
             XCTAssertEqual(Settings.mouseCameraSensitivity, 1)
             XCTAssertEqual(Settings.windowCenteringSensitivity, 1)
+            Settings.cameraPanSensitivity = .normal
+            XCTAssertEqual(Settings.trackpadCameraSensitivity, 1 / 1.35, accuracy: 0.0001)
             Settings.trackpadCameraSensitivity = 2.2
+            Settings.cameraPanSensitivity = .veryHigh
+            XCTAssertEqual(Settings.trackpadCameraSensitivity, 2.2)
             Settings.mouseCameraSensitivity = 0.7
             Settings.windowCenteringSensitivity = 1.6
             XCTAssertEqual(Settings.trackpadCameraSensitivity, 2.2)
@@ -100,7 +104,7 @@ final class SettingsTests: XCTestCase {
             Settings.windowCenteringSensitivity = 10
             XCTAssertEqual(Settings.windowCenteringSensitivity, 2)
             Settings.resetCameraSensitivities()
-            XCTAssertEqual(Settings.trackpadCameraSensitivity, 1.35)
+            XCTAssertEqual(Settings.trackpadCameraSensitivity, 1, accuracy: 0.0001)
             XCTAssertEqual(Settings.mouseCameraSensitivity, 1)
             XCTAssertEqual(Settings.windowCenteringSensitivity, 1)
             XCTAssertEqual(Settings.CameraPanSensitivity.normal.multiplier, 1)

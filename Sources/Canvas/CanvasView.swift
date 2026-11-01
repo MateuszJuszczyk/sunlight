@@ -851,7 +851,7 @@ final class CanvasView: NSView {
         fourFingersHeld = true
         panTravel.x += delta.dx
         panTravel.y += delta.dy
-        let sensitivity = CGFloat(Settings.trackpadCameraSensitivity)
+        let sensitivity = CGFloat(Settings.trackpadCameraSensitivity * 1.35)
         panVelocity.add(CGPoint(x: panTravel.x * sensitivity, y: panTravel.y * sensitivity), at: CACurrentMediaTime())
         pending.addPan(CGVector(dx: delta.dx * sensitivity, dy: delta.dy * sensitivity))
     }
@@ -2589,7 +2589,7 @@ final class CanvasView: NSView {
         if event.momentumPhase != [],
            !Settings.panInertia || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return }
         beginInput()
-        let gain = event.hasPreciseScrollingDeltas ? Settings.trackpadCameraSensitivity / 1.35 : Settings.mouseCameraSensitivity
+        let gain = event.hasPreciseScrollingDeltas ? Settings.trackpadCameraSensitivity : Settings.mouseCameraSensitivity
         if modifiedZoom || Settings.canvasScrollBehavior == .zoom {
             pending.addZoom(by: exp(-event.scrollingDeltaY * 0.01 * gain), around: screenPoint)
         } else {
@@ -2606,7 +2606,7 @@ final class CanvasView: NSView {
             pinchVelocity = Motion.ScalarVelocity()
         }
         pinchHeld = !(event.phase == .ended || event.phase == .cancelled)
-        let factor = exp(log(max(0.01, 1 + event.magnification)) * (Settings.trackpadCameraSensitivity / 1.35))
+        let factor = exp(log(max(0.01, 1 + event.magnification)) * Settings.trackpadCameraSensitivity)
         pinchLog += log(factor)
         pinchVelocity.add(pinchLog, at: event.timestamp)
         pending.addZoom(by: factor, around: screenPoint)
