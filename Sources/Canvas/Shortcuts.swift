@@ -212,8 +212,8 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
         }
     }
 
-    /// A command a key can be given: See Everything and Panning belong to gestures, not keys.
-    var keyBindable: Bool { self != .seeAll && self != .panCanvas }
+    /// Panning is continuous and cannot be represented by a single key press.
+    var keyBindable: Bool { self != .panCanvas }
 
     /// Whether the feature behind a command is on, and whether there is anywhere to move a window to.
     func isAvailable(arranging: Bool, strip: Bool, displays: Bool) -> Bool {

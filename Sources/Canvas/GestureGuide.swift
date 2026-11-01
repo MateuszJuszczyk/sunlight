@@ -638,7 +638,7 @@ struct TrackpadPane: View {
                 ForEach(TrackpadGesture.allCases) { item in
                     Picker(selection: binding(for: item)) {
                         Text("Nothing").tag(Command?.none)
-                        ForEach(Command.allCases) { command in
+                        ForEach(Command.allCases.filter { $0 != .panCanvas || item == .fourFingerDrag }) { command in
                             Text(command.menuTitle).tag(Command?.some(command))
                         }
                     } label: {
@@ -655,7 +655,7 @@ struct TrackpadPane: View {
                 }
             } header: {
                 SectionHeader(title: "What they do",
-                              detail: "Every four-finger gesture can do any of Sunlight’s commands, or nothing. A flick that is given something fires as the fingers lift; a drag given something other than panning fires as they set off.")
+                              detail: "Choose what each gesture does, or leave it unbound. Panning needs a continuous four-finger drag. A flick fires as the fingers lift; a drag given another action fires as they set off.")
             } footer: {
                 Text("A gesture with nothing bound is left to the Mac where it can be, and does nothing where it can’t. Clicks, two-finger scrolls and pinches stay the canvas’s own, as on the desktop.")
                     .font(.callout)

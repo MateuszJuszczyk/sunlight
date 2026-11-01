@@ -1613,7 +1613,7 @@ struct ShortcutsPane: View {
                 rows(for: .canvas)
             } header: {
                 SectionHeader(title: "Canvas",
-                              detail: "Strip Mode and Show Desktop. Show Desktop is F11 by default; while Sunlight has taken over the Mac, its key tap hands F11 here, and puts it back when the key is changed.")
+                              detail: "Strip Mode, See Everything and Show Desktop. Show Desktop is F11 by default; while Sunlight has taken over the Mac, its key tap hands F11 here, and puts it back when the key is changed.")
             }
             Section {
                 LabeledContent("Save Layout…") { Text("⌘S").foregroundStyle(.secondary) }

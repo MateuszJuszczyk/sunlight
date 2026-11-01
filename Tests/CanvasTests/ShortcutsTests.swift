@@ -45,6 +45,16 @@ final class ShortcutsTests: XCTestCase {
 
     // MARK: Changing a key
 
+    func testHotkeyIsReleasedWhenOwnerDropsIt() {
+        weak var released: Hotkey?
+        autoreleasepool {
+            let hotkey = Hotkey(keyCode: UInt32(kVK_ANSI_Z), modifiers: UInt32(controlKey | optionKey | shiftKey)) {}
+            released = hotkey
+            XCTAssertNotNil(released)
+        }
+        XCTAssertNil(released)
+    }
+
     func testAKeyCanBeChangedAndCleared() {
         let custom = key(kVK_ANSI_L, "l")
         Bindings.setShortcut(custom, for: .leftHalf)
