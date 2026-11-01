@@ -228,6 +228,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                       strip: Settings.stripModeEnabled,
                                       displays: canvas.canvases.count > 1) else { return nil }
             guard let shortcut = Bindings.shortcut(for: command) else { return nil }
+            // The dedicated Mission Control key is delivered through the takeover event tap.
+            if command == .toggleCanvas, shortcut == command.defaultShortcut { return nil }
             return Hotkey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers) { [weak canvas] in
                 canvas?.perform(command)
             }
@@ -240,6 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func updateKeyTap() {
         let shortcut = Bindings.shortcut(for: .showDesktop)
         takeover?.keyTap.update(showDesktopOnF11: !recordingShortcut && shortcut?.keyCode == UInt32(kVK_F11) && shortcut?.modifiers == 0)
+        takeover?.keyTap.update(toggleCanvasOnMissionControl: !recordingShortcut && Bindings.shortcut(for: .toggleCanvas) == Command.toggleCanvas.defaultShortcut)
     }
 
     /// The panel's Sunlight switch. Off: the canvas goes (`CanvasController.setPaused`), the hotkeys are

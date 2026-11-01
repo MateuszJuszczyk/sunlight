@@ -106,6 +106,8 @@ These are the defaults. **Settings › Shortcuts** lets you change the keys, and
 lets you assign actions to window clicks and four-finger gestures, and choose how scrolling and pinching
 behave on the canvas. A single click acts immediately, even when a second click follows; primary clicks
 and scrolling over a window at 1:1 still reach that window. Both panes can restore their defaults.
+**Settings › Canvas** also has separate camera-sensitivity controls for precise scrolling and the mouse
+wheel, plus a centering-sensitivity control for how readily a released pan catches a window.
 
 Everything else lives in the **sun icon in the menu bar** (Sunlight has no Dock icon): the on/off switch,
 the minimap, your layouts, and More for the rest. **Settings › Trackpad** acts out every gesture, and

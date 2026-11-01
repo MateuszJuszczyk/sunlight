@@ -43,6 +43,9 @@ final class SwitcherKeysTests: XCTestCase {
     func testOnlyTheMissionControlKeySeesAll() {
         let missionControlKey: Int64 = 160
         XCTAssertEqual(act(missionControlKey, [], open: false), .send(.missionControl))
+        var state = KeyTap.State()
+        state.toggleCanvasOnMissionControl = false
+        XCTAssertEqual(KeyTap.action(keyCode: missionControlKey, flags: [], state: &state), .pass)
         XCTAssertEqual(act(up, .maskControl, open: false), .pass, "⌃↑ is the app's own")
         XCTAssertEqual(act(down, .maskControl, open: false), .pass, "⌃↓ is the app's own")
         XCTAssertEqual(act(grave, .maskAlternate, open: false), .pass, "⌥` is the app's own")

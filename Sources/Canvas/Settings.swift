@@ -310,6 +310,35 @@ enum Settings {
         set { defaults.set(newValue.rawValue, forKey: cameraPanSensitivityKey) }
     }
 
+    private static func sensitivity(_ key: String, default fallback: Double, range: ClosedRange<Double>) -> Double {
+        guard let stored = defaults.object(forKey: key) as? NSNumber else { return fallback }
+        let value = stored.doubleValue
+        guard value.isFinite else { return fallback }
+        return min(range.upperBound, max(range.lowerBound, value))
+    }
+
+    static var trackpadCameraSensitivity: Double {
+        get { sensitivity("TrackpadCameraSensitivity", default: Double(cameraPanSensitivity.multiplier), range: 0.25...3) }
+        set { defaults.set(min(3, max(0.25, newValue)), forKey: "TrackpadCameraSensitivity") }
+    }
+
+    static var mouseCameraSensitivity: Double {
+        get { sensitivity("MouseCameraSensitivity", default: 1, range: 0.25...3) }
+        set { defaults.set(min(3, max(0.25, newValue)), forKey: "MouseCameraSensitivity") }
+    }
+
+    static var windowCenteringSensitivity: Double {
+        get { sensitivity("WindowCenteringSensitivity", default: 1, range: 0.5...2) }
+        set { defaults.set(min(2, max(0.5, newValue)), forKey: "WindowCenteringSensitivity") }
+    }
+
+    static func resetCameraSensitivities() {
+        defaults.removeObject(forKey: "TrackpadCameraSensitivity")
+        defaults.removeObject(forKey: cameraPanSensitivityKey)
+        defaults.removeObject(forKey: "MouseCameraSensitivity")
+        defaults.removeObject(forKey: "WindowCenteringSensitivity")
+    }
+
     static var autoCenterAfterFourFingerPan: Bool {
         get { defaults.object(forKey: autoCenterAfterFourFingerPanKey) as? Bool ?? true }
         set { defaults.set(newValue, forKey: autoCenterAfterFourFingerPanKey) }
@@ -1365,9 +1394,10 @@ private struct CanvasPane: View {
     var body: some View {
         Form {
             Section {
-                Picker("Camera pan sensitivity", selection: model.bind({ Settings.cameraPanSensitivity }, { Settings.cameraPanSensitivity = $0 })) {
-                    ForEach(Settings.CameraPanSensitivity.allCases, id: \.self) { Text($0.title) }
-                }
+                sensitivitySlider("Trackpad camera sensitivity", value: model.bind({ Settings.trackpadCameraSensitivity }, { Settings.trackpadCameraSensitivity = $0 }), range: 0.25...3,
+                                  detail: "Controls four-finger pan, pinch and precise scrolling, including Magic Mouse scrolling.")
+                sensitivitySlider("Mouse camera sensitivity", value: model.bind({ Settings.mouseCameraSensitivity }, { Settings.mouseCameraSensitivity = $0 }), range: 0.25...3,
+                                  detail: "Controls mouse-wheel navigation and pointer dragging on the canvas.")
                 Toggle(isOn: model.bind({ Settings.autoCenterAfterFourFingerPan }, { Settings.autoCenterAfterFourFingerPan = $0 })) {
                     RowLabel(title: "Center after four-finger pan",
                              subtitle: "Center on a nearby window after the pan comes to rest.")
@@ -1388,6 +1418,13 @@ private struct CanvasPane: View {
                     ForEach(Settings.WindowSnapStrength.allCases, id: \.self) { Text($0.title) }
                 }
                 .disabled(!Settings.snapToWindows)
+                sensitivitySlider("Window centering sensitivity", value: model.bind({ Settings.windowCenteringSensitivity }, { Settings.windowCenteringSensitivity = $0 }), range: 0.5...2,
+                                  detail: "Higher values catch windows from farther away and need less four-finger travel after release.")
+                    .disabled(!Settings.snapToWindows)
+                Button("Restore Camera Sensitivity Defaults") {
+                    Settings.resetCameraSensitivities()
+                    model.objectWillChange.send()
+                }
             } header: {
                 SectionHeader(title: "Moving around",
                               detail: "Inertia is off while Reduce Motion is on in System Settings › Accessibility.")
@@ -1429,6 +1466,19 @@ private struct CanvasPane: View {
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
+    }
+
+    private func sensitivitySlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                RowLabel(title: title, subtitle: detail)
+                Spacer()
+                Text("\(Int((value.wrappedValue * 100).rounded()))%")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Slider(value: value, in: range, step: 0.05)
+        }
     }
 }
 

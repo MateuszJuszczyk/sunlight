@@ -34,6 +34,7 @@ final class ShortcutsTests: XCTestCase {
         XCTAssertEqual(Bindings.shortcut(for: .showDesktop)?.label, "F11")
         XCTAssertNil(Bindings.shortcut(for: .centerTwoThirds))
         XCTAssertNil(Bindings.shortcut(for: .seeAll))
+        XCTAssertEqual(Bindings.shortcut(for: .toggleCanvas)?.label, "Mission Control")
         XCTAssertNil(Bindings.shortcut(for: .panCanvas))
         XCTAssertEqual(Bindings.shortcut(for: .enterWindow)?.label, "⏎")
         XCTAssertEqual(Bindings.shortcut(for: .flipPolarity)?.label, "P")

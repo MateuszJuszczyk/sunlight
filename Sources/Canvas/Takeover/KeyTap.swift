@@ -30,6 +30,7 @@ final class KeyTap: @unchecked Sendable {
         var placesNewWindow = false
         /// Whether F11 still means Show Desktop (`Bindings`): rebound, F11 goes back to the Mac.
         var showDesktopOnF11 = true
+        var toggleCanvasOnMissionControl = true
         /// Key codes whose keyDown we swallowed; their keyUp is swallowed too so apps never see an orphan.
         var swallowed = Set<Int64>()
     }
@@ -82,7 +83,13 @@ final class KeyTap: @unchecked Sendable {
             CFRunLoopStop(CFRunLoopGetCurrent())
         }
         CFRunLoopWakeUp(runLoop)
-        state.withLock { $0 = State() }
+        state.withLock {
+            let desktop = $0.showDesktopOnF11
+            let toggle = $0.toggleCanvasOnMissionControl
+            $0 = State()
+            $0.showDesktopOnF11 = desktop
+            $0.toggleCanvasOnMissionControl = toggle
+        }
     }
 
     /// Whether a real window is in front (changes what ⌘Tab means).
@@ -101,6 +108,10 @@ final class KeyTap: @unchecked Sendable {
     /// Settings › Shortcuts: F11 is Show Desktop until it is rebound, and then it is the Mac's again.
     func update(showDesktopOnF11: Bool) {
         state.withLock { $0.showDesktopOnF11 = showDesktopOnF11 }
+    }
+
+    func update(toggleCanvasOnMissionControl: Bool) {
+        state.withLock { $0.toggleCanvasOnMissionControl = toggleCanvasOnMissionControl }
     }
 
     // MARK: Tap thread
@@ -241,7 +252,7 @@ final class KeyTap: @unchecked Sendable {
             // Spaces switching: there is only one Space in this environment.
             return (control && !command && !option) ? .swallow : .pass
         case missionControlKey where !command && !control && !option:
-            return .send(.missionControl)
+            return state.toggleCanvasOnMissionControl ? .send(.missionControl) : .pass
         case f11 where !command && !control && !option:
             return state.showDesktopOnF11 ? .send(.showDesktop) : .pass
         default:

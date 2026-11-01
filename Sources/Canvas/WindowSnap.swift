@@ -33,13 +33,14 @@ enum WindowSnap {
     /// The closest eligible window and its 1:1 camera. Equal distances are resolved by world geometry,
     /// rather than the order in which windows happened to be listed.
     static func target(camera: Camera, viewSize: CGSize, visible: CGRect, windows: [Window],
-                       strength: Strength = .normal) -> (index: Int, camera: Camera)? {
+                       strength: Strength = .normal, sensitivity: CGFloat = 1) -> (index: Int, camera: Camera)? {
         let reach: CGFloat
         switch strength {
         case .normal: reach = normalReach
         case .strong: reach = strongReach
         }
-        let rx = max(minReach, viewSize.width * reach), ry = max(minReach, viewSize.height * reach)
+        let gain = min(2, max(0.5, sensitivity))
+        let rx = max(minReach, viewSize.width * reach) * gain, ry = max(minReach, viewSize.height * reach) * gain
         var best: (index: Int, camera: Camera, off: CGFloat, rect: CGRect, spot: CGPoint)?
         for (i, w) in windows.enumerated() {
             guard w.rect.width > 0, w.rect.height > 0,
@@ -83,9 +84,11 @@ enum WindowSnap {
     /// Step from the window nearest the gesture's starting camera to a neighbour in the camera's
     /// travel direction. Bounds are in world points, so zooming out cannot capture distant windows.
     static func neighbour(from start: Camera, viewSize: CGSize, windows: [Window],
-                          direction: CGVector, preferredIndex: Int? = nil) -> (index: Int, camera: Camera)? {
+                          direction: CGVector, preferredIndex: Int? = nil,
+                          sensitivity: CGFloat = 1) -> (index: Int, camera: Camera)? {
+        let gain = min(2, max(0.5, sensitivity))
         guard viewSize.width > 0, viewSize.height > 0,
-              hypot(direction.dx, direction.dy) >= 18 else { return nil }
+              hypot(direction.dx, direction.dy) >= 18 / gain else { return nil }
         let center = start.center(viewSize: viewSize)
         func targetCenter(_ w: Window) -> CGPoint {
             CGPoint(x: w.rect.minX - w.spot.x + viewSize.width / 2,
@@ -96,7 +99,7 @@ enum WindowSnap {
             let p = targetCenter(w)
             let dx = abs(p.x - center.x) / viewSize.width
             let dy = abs(p.y - center.y) / viewSize.height
-            guard dx <= 0.75, dy <= 0.75 else { continue }
+            guard dx <= 0.75 * gain, dy <= 0.75 * gain else { continue }
             let candidate = (dx * dx + dy * dy, p.x, p.y)
             if let a = anchor, candidate >= (a.score, a.x, a.y) { continue }
             anchor = (i, candidate.0, p.x, p.y)
@@ -115,8 +118,8 @@ enum WindowSnap {
         let anchorRect = windows[anchor.index].rect
         let horizontal = abs(direction.dx) >= abs(direction.dy)
         let sign: CGFloat = (horizontal ? direction.dx : direction.dy) >= 0 ? 1 : -1
-        let alongLimit = (horizontal ? viewSize.width : viewSize.height) * 1.5
-        let acrossLimit = (horizontal ? viewSize.height : viewSize.width) * 0.75
+        let alongLimit = (horizontal ? viewSize.width : viewSize.height) * 1.5 * gain
+        let acrossLimit = (horizontal ? viewSize.height : viewSize.width) * 0.75 * gain
         var best: (index: Int, score: CGFloat, x: CGFloat, y: CGFloat)?
         for (i, w) in windows.enumerated() where i != anchor.index && w.rect.width > 0 && w.rect.height > 0 {
             let p = CGPoint(x: w.rect.midX, y: w.rect.midY)

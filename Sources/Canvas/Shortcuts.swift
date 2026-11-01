@@ -77,7 +77,7 @@ struct Shortcut: Hashable, Codable, Sendable {
         115: "↖", 116: "⇞", 119: "↘", 121: "⇟",
         123: "←", 124: "→", 125: "↓", 126: "↑",
         122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7",
-        100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
+        100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12", 160: "Mission Control",
     ]
 }
 
@@ -101,6 +101,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
     case toggleStrip
     case showDesktop
     case seeAll
+    case toggleCanvas
     case panCanvas
     case enterWindow, flipPolarity
     case saveLayout, settings, instructions, quit, closeWindow, undo, redo
@@ -137,7 +138,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
             return .arrange
         case .nextDisplay, .previousDisplay:
             return .displays
-        case .toggleStrip, .showDesktop, .seeAll, .panCanvas, .enterWindow, .flipPolarity:
+        case .toggleStrip, .showDesktop, .seeAll, .toggleCanvas, .panCanvas, .enterWindow, .flipPolarity:
             return .canvas
         case .saveLayout, .settings, .instructions, .quit, .closeWindow, .undo, .redo,
              .restoreLayout1, .restoreLayout2, .restoreLayout3, .restoreLayout4, .restoreLayout5,
@@ -171,6 +172,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .toggleStrip: return "Strip Mode"
         case .showDesktop: return "Show Desktop"
         case .seeAll: return "See Everything"
+        case .toggleCanvas: return "Canvas ↔ Last Window"
         case .panCanvas: return "Pan the Canvas"
         case .enterWindow: return "Enter Window"
         case .flipPolarity: return "Flip Window Polarity"
@@ -238,6 +240,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .toggleStrip: return key(kVK_ANSI_S, "s", tile)
         // F11 is the Mac's own Show Desktop; while takeover runs, the key tap forwards it here.
         case .showDesktop: return key(kVK_F11, arrow(NSF11FunctionKey), 0)
+        case .toggleCanvas: return key(160, arrow(NSF3FunctionKey), 0)
         case .enterWindow: return key(kVK_Return, "\r", 0)
         case .flipPolarity: return key(kVK_ANSI_P, "p", 0)
         case .saveLayout: return key(kVK_ANSI_S, "s", command)

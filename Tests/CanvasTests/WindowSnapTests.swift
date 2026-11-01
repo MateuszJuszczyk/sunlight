@@ -61,6 +61,18 @@ final class WindowSnapTests: XCTestCase {
         XCTAssertNil(WindowSnap.target(camera: edge, viewSize: size, visible: area, windows: [window], strength: .normal))
     }
 
+    func testCenteringSensitivityChangesCatchDistanceAndTravelThreshold() {
+        let size = CGSize(width: 1000, height: 1000)
+        let area = CGRect(origin: .zero, size: size)
+        let first = WindowSnap.Window(rect: CGRect(x: 0, y: 0, width: 1000, height: 1000), spot: .zero)
+        let right = WindowSnap.Window(rect: first.rect.offsetBy(dx: 900, dy: 0), spot: .zero)
+        let displaced = Camera(origin: CGPoint(x: 200, y: 0), zoom: 1)
+        XCTAssertNil(WindowSnap.target(camera: displaced, viewSize: size, visible: area, windows: [first], strength: .strong, sensitivity: 0.5))
+        XCTAssertNotNil(WindowSnap.target(camera: displaced, viewSize: size, visible: area, windows: [first], strength: .strong, sensitivity: 2))
+        XCTAssertNil(WindowSnap.neighbour(from: Camera(origin: .zero, zoom: 1), viewSize: size, windows: [first, right], direction: CGVector(dx: 12, dy: 0), sensitivity: 0.5))
+        XCTAssertEqual(WindowSnap.neighbour(from: Camera(origin: .zero, zoom: 1), viewSize: size, windows: [first, right], direction: CGVector(dx: 12, dy: 0), sensitivity: 2)?.index, 1)
+    }
+
     func testStrongDoesNotCaptureInvisibleWindowAndCanSnapFromOverview() {
         let hidden = WindowSnap.Window(rect: CGRect(x: 3000, y: 500, width: 20, height: 20), spot: CGPoint(x: -100, y: 100))
         let camera = Camera(origin: CGPoint(x: 3100, y: 400), zoom: 1)

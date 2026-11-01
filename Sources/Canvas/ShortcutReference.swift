@@ -31,7 +31,7 @@ enum ShortcutReference {
             Row(title: "Enter a window", keys: "pinch in · " + (Bindings.shortcut(for: .enterWindow)?.label ?? "—")),
             Row(title: "Use a window at 1:1", keys: "click"),
             Row(title: "See everything", keys: seeAll),
-            Row(title: "Canvas ↔ last window", keys: "Mission Control key · " + seeAll),
+            Row(title: "Canvas ↔ last window", keys: [Bindings.shortcut(for: .toggleCanvas)?.label, gestureLine(for: .toggleCanvas)].compactMap { $0 }.joined(separator: " · ")),
             Row(title: "Show Desktop", keys: desktop.isEmpty ? "—" : desktop),
             Row(title: "Switch apps", keys: "⌘Tab · then ⌘← ⌘→"),
             Row(title: "Switch the app's windows", keys: "⌘Tab, then ⌘` · ⌘↑ ⌘↓"),

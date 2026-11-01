@@ -237,6 +237,7 @@ final class Desk {
         case .toggleStrip: target.toggleStripMode()
         case .showDesktop: target.showDesktop()
         case .seeAll: target.seeAll()
+        case .toggleCanvas: toggle()
         case .panCanvas: break
         default: break
         }

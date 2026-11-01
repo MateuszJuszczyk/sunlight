@@ -37,7 +37,7 @@ final class SettingsTests: XCTestCase {
     func testNavigationPreferencesDefaultAndRoundTrip() async {
         await MainActor.run {
             let defaults = UserDefaults.standard
-            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled", "CanvasSingleClickCommand", "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand", "CanvasWindowDragAction",
+            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled", "CanvasSingleClickCommand", "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand", "CanvasWindowDragAction", "TrackpadCameraSensitivity", "MouseCameraSensitivity", "WindowCenteringSensitivity",
                         "windowSnapStrength", "cameraPanSensitivity"]
             let saved = keys.map { defaults.object(forKey: $0) }
             defer {
@@ -88,6 +88,21 @@ final class SettingsTests: XCTestCase {
             XCTAssertEqual(Settings.windowSnapStrength, .strong)
             XCTAssertEqual(Settings.cameraPanSensitivity, .high)
             XCTAssertEqual(Settings.cameraPanSensitivity.multiplier, 1.35)
+            XCTAssertEqual(Settings.trackpadCameraSensitivity, 1.35)
+            XCTAssertEqual(Settings.mouseCameraSensitivity, 1)
+            XCTAssertEqual(Settings.windowCenteringSensitivity, 1)
+            Settings.trackpadCameraSensitivity = 2.2
+            Settings.mouseCameraSensitivity = 0.7
+            Settings.windowCenteringSensitivity = 1.6
+            XCTAssertEqual(Settings.trackpadCameraSensitivity, 2.2)
+            XCTAssertEqual(Settings.mouseCameraSensitivity, 0.7)
+            XCTAssertEqual(Settings.windowCenteringSensitivity, 1.6)
+            Settings.windowCenteringSensitivity = 10
+            XCTAssertEqual(Settings.windowCenteringSensitivity, 2)
+            Settings.resetCameraSensitivities()
+            XCTAssertEqual(Settings.trackpadCameraSensitivity, 1.35)
+            XCTAssertEqual(Settings.mouseCameraSensitivity, 1)
+            XCTAssertEqual(Settings.windowCenteringSensitivity, 1)
             XCTAssertEqual(Settings.CameraPanSensitivity.normal.multiplier, 1)
             XCTAssertEqual(Settings.CameraPanSensitivity.veryHigh.multiplier, 1.6)
 
