@@ -16,13 +16,18 @@ enum ShortcutReference {
         let seeAll = gestureLine(for: .seeAll) ?? "—"
         let desktop = [Bindings.shortcut(for: .showDesktop)?.label, gestureLine(for: .showDesktop)]
             .compactMap { $0 }.joined(separator: " · ")
+        let zoom = [Settings.canvasPinchEnabled ? "pinch" : nil,
+                    Settings.canvasScrollBehavior == .zoom ? "two-finger scroll" : nil,
+                    "⌥ or ⌘ scroll"].compactMap { $0 }.joined(separator: " · ")
+        let pan = [Settings.canvasScrollBehavior == .pan ? "two-finger scroll" : nil,
+                   gestureLine(for: .panCanvas)].compactMap { $0 }.joined(separator: " · ")
         return [
-            Row(title: "Zoom", keys: "pinch · ⌥ or ⌘ scroll"),
-            Row(title: "Pan", keys: "two-finger scroll · \(gestureLine(for: .panCanvas) ?? "four-finger drag")"),
+            Row(title: "Zoom", keys: zoom),
+            Row(title: "Pan", keys: pan.isEmpty ? "—" : pan),
             Row(title: "Move a window", keys: "drag"),
             Row(title: "Flip a window's pole", keys: (Bindings.shortcut(for: .flipPolarity)?.label ?? "—") + " · its ⊕/⊖ button"),
-            Row(title: "Single-click a window", keys: Settings.singleClickBehavior.title),
-            Row(title: "Double-click a window", keys: Settings.doubleClickBehavior.title),
+            Row(title: "Single-click a window", keys: Settings.windowClickAction(double: false).title),
+            Row(title: "Double-click a window", keys: Settings.windowClickAction(double: true).title),
             Row(title: "Enter a window", keys: "pinch in · " + (Bindings.shortcut(for: .enterWindow)?.label ?? "—")),
             Row(title: "Use a window at 1:1", keys: "click"),
             Row(title: "See everything", keys: seeAll),
@@ -39,8 +44,8 @@ enum ShortcutReference {
 
     static func commandRows(arranging: Bool, strip: Bool) -> [Row] {
         var rows = [
-            Row(title: "Save Layout…", keys: "⌘S"),
-            Row(title: "Restore a layout", keys: "⌘1 – ⌘9"),
+            Row(title: "Save Layout…", keys: Bindings.shortcut(for: .saveLayout)?.label ?? "—"),
+            Row(title: "Restore a layout", keys: Bindings.summary(Command.layoutCommands, default: "⌘1 – ⌘9")),
         ]
         if arranging {
             rows += [
@@ -57,7 +62,7 @@ enum ShortcutReference {
             .compactMap { $0 }.joined(separator: " · ")
         rows += [
             Row(title: "Show Desktop", keys: desktop.isEmpty ? "—" : desktop),
-            Row(title: "Settings…", keys: "⌘,"),
+            Row(title: "Settings…", keys: Bindings.shortcut(for: .settings)?.label ?? "—"),
         ]
         return rows
     }

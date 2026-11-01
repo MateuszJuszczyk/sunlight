@@ -60,10 +60,11 @@ struct ShortcutRecorder: View {
         recorder.start { event in
             switch event.keyCode {
             case 53:   // Escape
+                guard event.modifierFlags.intersection([.control, .option, .shift, .command]).isEmpty else { break }
                 recorder.stop()
                 return
             case 51, 117:
-                guard event.modifierFlags.intersection([.control, .option, .command]).isEmpty else { break }
+                guard event.modifierFlags.intersection([.control, .option, .shift, .command]).isEmpty else { break }
                 // Delete: the command keeps no key, and the menus stop showing one.
                 error = nil
                 onSet(nil)

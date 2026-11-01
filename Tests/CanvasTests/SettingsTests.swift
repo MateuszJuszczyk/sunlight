@@ -37,7 +37,7 @@ final class SettingsTests: XCTestCase {
     func testNavigationPreferencesDefaultAndRoundTrip() async {
         await MainActor.run {
             let defaults = UserDefaults.standard
-            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior",
+            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior", "CanvasScrollBehavior", "CanvasPinchEnabled", "CanvasSingleClickCommand", "CanvasDoubleClickCommand",
                         "windowSnapStrength", "cameraPanSensitivity"]
             let saved = keys.map { defaults.object(forKey: $0) }
             defer {
@@ -50,6 +50,19 @@ final class SettingsTests: XCTestCase {
             XCTAssertTrue(Settings.autoCenterAfterFourFingerPan)
             XCTAssertEqual(Settings.singleClickBehavior, .centerWindow)
             XCTAssertEqual(Settings.doubleClickBehavior, .enterAtClickPosition)
+            XCTAssertEqual(Settings.windowClickAction(double: false), .standard(.centerWindow))
+            Settings.setWindowClickAction(.command(.leftHalf), double: false)
+            XCTAssertEqual(Settings.windowClickAction(double: false), .command(.leftHalf))
+            XCTAssertEqual(Settings.windowClickAction(double: true), .standard(.enterAtClickPosition))
+            Settings.setWindowClickAction(.standard(.none), double: false)
+            XCTAssertEqual(Settings.windowClickAction(double: false), .standard(.none))
+            Settings.singleClickBehavior = .centerWindow
+            XCTAssertEqual(Settings.canvasScrollBehavior, .pan)
+            XCTAssertTrue(Settings.canvasPinchEnabled)
+            Settings.canvasScrollBehavior = .zoom
+            Settings.canvasPinchEnabled = false
+            XCTAssertEqual(Settings.canvasScrollBehavior, .zoom)
+            XCTAssertFalse(Settings.canvasPinchEnabled)
             Settings.singleClickBehavior = .enterAtClickPosition
             XCTAssertEqual(Settings.doubleClickBehavior, .centerWindow)
             Settings.doubleClickBehavior = .none

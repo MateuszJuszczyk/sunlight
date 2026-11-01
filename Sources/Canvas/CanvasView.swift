@@ -38,6 +38,7 @@ final class CanvasView: NSView {
     /// Zoomed in or out, a click on a window that didn't become a drag: enter it at 1:1 around the clicked
     /// spot (`at`: where it was pressed, view coordinates; `offset`: where in the window, world units).
     var onClickEnter: ((_ proxy: WindowProxy, _ at: CGPoint, _ offset: CGPoint, _ double: Bool) -> Void)?
+    var onClickCommand: ((WindowProxy, Command) -> Void)?
     /// Remember the first click while its entrance runs, so a second can redirect it.
     private struct PendingWindowClick {
         let id: UUID
@@ -2219,13 +2220,15 @@ final class CanvasView: NSView {
     }
 
     private func performWindowClick(_ proxy: WindowProxy, at point: CGPoint, offset: CGPoint, double: Bool) {
-        switch double ? Settings.doubleClickBehavior : Settings.singleClickBehavior {
-        case .centerWindow:
+        switch Settings.windowClickAction(double: double) {
+        case .standard(.centerWindow):
             onCenteredClick?(proxy, double)
-        case .enterAtClickPosition:
+        case .standard(.enterAtClickPosition):
             onClickEnter?(proxy, point, offset, double)
-        case .none:
+        case .standard(.none):
             break
+        case .command(let command):
+            onClickCommand?(proxy, command)
         }
     }
 
@@ -2544,6 +2547,8 @@ final class CanvasView: NSView {
             onUseScroll?(p, screenPoint, event)
             return
         }
+        let modifiedZoom = event.modifierFlags.contains(.option) || event.modifierFlags.contains(.command)
+        guard modifiedZoom || Settings.canvasScrollBehavior != .none else { return }
         // The Mac's own momentum events come through here too, so a scroll pan coasts by itself; with
         // pan inertia off in Settings (or Reduce Motion on) they're dropped and the pan stops with the
         // fingers.
@@ -2555,7 +2560,7 @@ final class CanvasView: NSView {
         if event.momentumPhase != [],
            !Settings.panInertia || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return }
         beginInput()
-        if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.command) {
+        if modifiedZoom || Settings.canvasScrollBehavior == .zoom {
             pending.addZoom(by: exp(-event.scrollingDeltaY * 0.01), around: screenPoint)
         } else {
             pending.addPan(CGVector(dx: event.scrollingDeltaX, dy: event.scrollingDeltaY))
@@ -2563,7 +2568,7 @@ final class CanvasView: NSView {
     }
 
     override func magnify(with event: NSEvent) {
-        guard window?.isKeyWindow == true else { return }
+        guard window?.isKeyWindow == true, Settings.canvasPinchEnabled else { return }
         beginInput()
         let screenPoint = topLeftPoint(event)
         if event.phase == .began {

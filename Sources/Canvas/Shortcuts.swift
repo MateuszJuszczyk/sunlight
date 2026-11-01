@@ -103,11 +103,14 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
     case seeAll
     case panCanvas
     case enterWindow, flipPolarity
+    case saveLayout, settings, instructions, quit, closeWindow, undo, redo
+    case restoreLayout1, restoreLayout2, restoreLayout3, restoreLayout4, restoreLayout5
+    case restoreLayout6, restoreLayout7, restoreLayout8, restoreLayout9
 
     var id: String { rawValue }
 
     enum Group: String, CaseIterable, Identifiable {
-        case moveAndResize, arrange, displays, canvas
+        case moveAndResize, arrange, displays, canvas, menus
 
         var id: String { rawValue }
 
@@ -117,6 +120,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
             case .arrange: return "Arrange"
             case .displays: return "Displays"
             case .canvas: return "Canvas"
+            case .menus: return "Menus"
             }
         }
     }
@@ -135,6 +139,10 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
             return .displays
         case .toggleStrip, .showDesktop, .seeAll, .panCanvas, .enterWindow, .flipPolarity:
             return .canvas
+        case .saveLayout, .settings, .instructions, .quit, .closeWindow, .undo, .redo,
+             .restoreLayout1, .restoreLayout2, .restoreLayout3, .restoreLayout4, .restoreLayout5,
+             .restoreLayout6, .restoreLayout7, .restoreLayout8, .restoreLayout9:
+            return .menus
         }
     }
 
@@ -166,6 +174,16 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .panCanvas: return "Pan the Canvas"
         case .enterWindow: return "Enter Window"
         case .flipPolarity: return "Flip Window Polarity"
+        case .saveLayout: return "Save Layout"
+        case .settings: return "Settings"
+        case .instructions: return "Instructions"
+        case .quit: return "Quit Sunlight"
+        case .closeWindow: return "Close Window"
+        case .undo: return "Undo"
+        case .redo: return "Redo"
+        case .restoreLayout1, .restoreLayout2, .restoreLayout3, .restoreLayout4, .restoreLayout5,
+             .restoreLayout6, .restoreLayout7, .restoreLayout8, .restoreLayout9:
+            return "Restore Layout \((Self.layoutCommands.firstIndex(of: self) ?? 0) + 1)"
         default: return rawValue
         }
     }
@@ -177,6 +195,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
     var defaultShortcut: Shortcut? {
         let tile = UInt32(controlKey | optionKey)
         let display = UInt32(controlKey | optionKey | shiftKey)
+        let command = UInt32(cmdKey)
         func key(_ code: Int, _ character: String, _ modifiers: UInt32) -> Shortcut {
             Shortcut(keyCode: UInt32(code), modifiers: modifiers, key: character)
         }
@@ -204,6 +223,11 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
             case .center: return key(kVK_ANSI_C, "c", tile)
             }
         }
+        if let i = Self.layoutCommands.firstIndex(of: self) {
+            let codes = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
+                         kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
+            return key(codes[i], String(i + 1), command)
+        }
         switch self {
         case .arrange2: return key(kVK_ANSI_2, "2", tile)
         case .arrange3: return key(kVK_ANSI_3, "3", tile)
@@ -216,6 +240,13 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .showDesktop: return key(kVK_F11, arrow(NSF11FunctionKey), 0)
         case .enterWindow: return key(kVK_Return, "\r", 0)
         case .flipPolarity: return key(kVK_ANSI_P, "p", 0)
+        case .saveLayout: return key(kVK_ANSI_S, "s", command)
+        case .settings: return key(kVK_ANSI_Comma, ",", command)
+        case .instructions: return key(kVK_ANSI_Slash, "?", command | UInt32(shiftKey))
+        case .quit: return key(kVK_ANSI_Q, "q", command)
+        case .closeWindow: return key(kVK_ANSI_W, "w", command)
+        case .undo: return key(kVK_ANSI_Z, "z", command)
+        case .redo: return key(kVK_ANSI_Z, "Z", command | UInt32(shiftKey))
         case .seeAll, .panCanvas: return nil
         default: return nil
         }
@@ -225,6 +256,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
     var keyBindable: Bool { self != .panCanvas }
     /// These act on the window under the pointer and only work while the canvas has focus.
     var isCanvasLocal: Bool { self == .enterWindow || self == .flipPolarity }
+    var isMenuShortcut: Bool { group == .menus }
 
     /// Whether the feature behind a command is on, and whether there is anywhere to move a window to.
     func isAvailable(arranging: Bool, strip: Bool, displays: Bool) -> Bool {
@@ -241,7 +273,9 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
 
     static var tiles: [Command] { allCases.filter { $0.preset != nil } }
     static var keyBindableCommands: [Command] { allCases.filter(\.keyBindable) }
-    static var globalKeyCommands: [Command] { keyBindableCommands.filter { !$0.isCanvasLocal } }
+    static var globalKeyCommands: [Command] { keyBindableCommands.filter { !$0.isCanvasLocal && !$0.isMenuShortcut } }
+    static let layoutCommands: [Command] = [.restoreLayout1, .restoreLayout2, .restoreLayout3,
+        .restoreLayout4, .restoreLayout5, .restoreLayout6, .restoreLayout7, .restoreLayout8, .restoreLayout9]
 }
 
 // MARK: - Four-finger gestures

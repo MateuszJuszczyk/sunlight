@@ -636,20 +636,35 @@ struct TrackpadPane: View {
             }
             Section {
                 Picker("Single-click window", selection: clickBinding(double: false)) {
-                    ForEach(Settings.SingleClickBehavior.allCases, id: \.self) { Text($0.title) }
+                    ForEach(Settings.WindowClickAction.choices, id: \.self) { Text($0.title) }
                 }
                 Picker("Double-click window", selection: clickBinding(double: true)) {
-                    ForEach(Settings.SingleClickBehavior.allCases, id: \.self) { Text($0.title) }
+                    ForEach(Settings.WindowClickAction.choices, id: \.self) { Text($0.title) }
                 }
             } header: {
                 SectionHeader(title: "Window clicks",
                               detail: "The first click acts immediately, including when followed by a second click. These choices also apply to a mouse.")
             }
             Section {
+                Picker("Two-finger scroll", selection: Binding(
+                    get: { Settings.canvasScrollBehavior },
+                    set: { Settings.canvasScrollBehavior = $0; revision += 1 }
+                )) {
+                    ForEach(Settings.ScrollBehavior.allCases, id: \.self) { Text($0.title) }
+                }
+                Toggle("Pinch to zoom canvas", isOn: Binding(
+                    get: { Settings.canvasPinchEnabled },
+                    set: { Settings.canvasPinchEnabled = $0; revision += 1 }
+                ))
+            } header: {
+                SectionHeader(title: "Zoom and pan",
+                              detail: "These apply to the canvas. Scroll over a window at 1:1 still reaches that window; ⌥ or ⌘ with scroll still zooms.")
+            }
+            Section {
                 ForEach(TrackpadGesture.allCases) { item in
                     Picker(selection: binding(for: item)) {
                         Text("Nothing").tag(Command?.none)
-                        ForEach(Command.allCases.filter { !$0.isCanvasLocal && ($0 != .panCanvas || item == .fourFingerDrag) }) { command in
+                        ForEach(Command.allCases.filter { !$0.isCanvasLocal && !$0.isMenuShortcut && ($0 != .panCanvas || item == .fourFingerDrag) }) { command in
                             Text(command.menuTitle).tag(Command?.some(command))
                         }
                     } label: {
@@ -682,8 +697,10 @@ struct TrackpadPane: View {
 
     /// The action a gesture does now, for its row and the picture's caption.
     private func actionTitle(_ item: GestureGuide.Gesture) -> String {
-        if item == .click { return Settings.singleClickBehavior.title }
-        if item == .doubleClick { return Settings.doubleClickBehavior.title }
+        if item == .click { return Settings.windowClickAction(double: false).title }
+        if item == .doubleClick { return Settings.windowClickAction(double: true).title }
+        if item == .scroll { return Settings.canvasScrollBehavior.title }
+        if item == .pinch { return Settings.canvasPinchEnabled ? "Zoom canvas" : "Nothing" }
         guard let gesture = item.trackpadGesture else { return item.title }
         return Bindings.command(for: gesture)?.title ?? "Nothing"
     }
@@ -698,11 +715,11 @@ struct TrackpadPane: View {
         )
     }
 
-    private func clickBinding(double: Bool) -> Binding<Settings.SingleClickBehavior> {
+    private func clickBinding(double: Bool) -> Binding<Settings.WindowClickAction> {
         Binding(
-            get: { double ? Settings.doubleClickBehavior : Settings.singleClickBehavior },
+            get: { Settings.windowClickAction(double: double) },
             set: { value in
-                if double { Settings.doubleClickBehavior = value } else { Settings.singleClickBehavior = value }
+                Settings.setWindowClickAction(value, double: double)
                 revision += 1
             }
         )

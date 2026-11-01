@@ -323,6 +323,12 @@ final class CanvasController {
         view.onFileDragEnded = { [weak self] in self?.fileDragEnded() }
         view.onEnter = { [weak self] proxy, point in self?.handoff(to: proxy, placement: .inPlace(around: point)) }
         view.onClickEnter = { [weak self] proxy, point, offset, double in self?.handoff(to: proxy, placement: .clicked(at: point, offset: offset), click: !double) }
+        view.onClickCommand = { [weak self] proxy, command in
+            guard let self else { return }
+            if let preset = command.preset { self.tile(proxy, preset) }
+            else if let arrangement = command.arrangement { self.arrange(columns: arrangement.columns, rows: arrangement.rows, around: proxy) }
+            else { self.desk?.perform(command, on: self) }
+        }
         view.onUse = { [weak self] proxy, point, press in self?.use(proxy, around: point, press: press) }
         view.onUseFollow = { [weak self] event in self?.followPress(event) }
         view.onUseScroll = { [weak self] proxy, point, scroll in self?.useScroll(proxy, around: point, scroll: scroll) }

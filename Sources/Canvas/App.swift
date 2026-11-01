@@ -336,6 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         add("Release the Mac…", #selector(releaseTheMac))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Sunlight", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        applyMenuBindings(menu)
         return menu
     }
 
@@ -393,6 +394,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         helpItem.submenu = helpMenu
         NSApp.helpMenu = helpMenu
         NSApp.mainMenu = main
+        applyMenuBindings(main)
+    }
+
+    /// Update existing menu items in place; menus remain attached to their original owners.
+    private func applyMenuBindings(_ menu: NSMenu) {
+        for item in menu.items {
+            let action = item.action
+            let command: Command?
+            switch action {
+            case #selector(showSettings(_:)): command = .settings
+            case #selector(showInstructions(_:)): command = .instructions
+            case #selector(saveLayout): command = .saveLayout
+            case #selector(NSApplication.terminate(_:)): command = .quit
+            case #selector(NSWindow.performClose(_:)): command = .closeWindow
+            case Selector(("undo:")): command = .undo
+            case Selector(("redo:")): command = .redo
+            default: command = nil
+            }
+            if let command { TileMenu.apply(Bindings.shortcut(for: command), to: item) }
+            if let submenu = item.submenu { applyMenuBindings(submenu) }
+        }
     }
 
     /// What was the app menu, minus Quit. Fresh items on every call: the main menu and the menu bar icon
@@ -433,6 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         windowMenu.addItem(.separator())
         windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        applyMenuBindings(windowMenu)
     }
 
     /// Settings › General › Experimental: arranging or strip mode turned on or off. The Window menu,
@@ -451,6 +474,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// hotkeys, the key tap's F11, and the panel's shortcut lines.
     private func bindingsChanged() {
         rebuildWindowMenu()
+        rebuildLayoutsMenu()
+        if let main = NSApp.mainMenu { applyMenuBindings(main) }
+        menuBar?.moreMenu = moreMenu()
         if Settings.sunlightOn, !recordingShortcut, let canvas {
             hotkeys = []
             installHotkeys(for: canvas)
@@ -493,6 +519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.removeAllItems()
         let save = NSMenuItem(title: "Save Layout…", action: #selector(saveLayout), keyEquivalent: "s")
         save.target = self
+        TileMenu.apply(Bindings.shortcut(for: .saveLayout), to: save)
         menu.addItem(save)
         addLayouts(to: menu)
         menuBar?.model.layouts = MenuBarPanelModel.layoutRows(LayoutStore.layouts.map(\.name))
@@ -504,6 +531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         layoutsMenu.addItem(.separator())
         for (i, layout) in layouts.enumerated() {
             let item = NSMenuItem(title: layout.name, action: #selector(restoreLayout(_:)), keyEquivalent: i < 9 ? "\(i + 1)" : "")
+            if i < Command.layoutCommands.count { TileMenu.apply(Bindings.shortcut(for: Command.layoutCommands[i]), to: item) }
             item.target = self
             item.representedObject = layout.name
             layoutsMenu.addItem(item)

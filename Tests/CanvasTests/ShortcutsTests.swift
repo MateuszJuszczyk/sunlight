@@ -39,6 +39,10 @@ final class ShortcutsTests: XCTestCase {
         XCTAssertEqual(Bindings.shortcut(for: .flipPolarity)?.label, "P")
         XCTAssertFalse(Command.globalKeyCommands.contains(.enterWindow))
         XCTAssertFalse(Command.globalKeyCommands.contains(.flipPolarity))
+        XCTAssertEqual(Bindings.shortcut(for: .saveLayout)?.label, "⌘S")
+        XCTAssertEqual(Bindings.shortcut(for: .restoreLayout9)?.label, "⌘9")
+        XCTAssertFalse(Command.globalKeyCommands.contains(.saveLayout))
+        XCTAssertEqual(Bindings.conflict(for: key(kVK_ANSI_S, "s", UInt32(cmdKey)), excluding: .tidy), .saveLayout)
     }
 
     func testTheSummariesReadTheSameAsBeforeUntilAKeyChanges() {

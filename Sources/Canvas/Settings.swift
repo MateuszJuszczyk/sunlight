@@ -341,6 +341,61 @@ enum Settings {
         set { defaults.set(newValue.rawValue, forKey: doubleClickBehaviorKey) }
     }
 
+    enum WindowClickAction: Hashable {
+        case standard(SingleClickBehavior)
+        case command(Command)
+
+        var title: String {
+            switch self {
+            case .standard(let behavior): return behavior.title
+            case .command(let command): return command.menuTitle
+            }
+        }
+        static var choices: [WindowClickAction] {
+            SingleClickBehavior.allCases.map(WindowClickAction.standard)
+                + Command.allCases.filter { !$0.isMenuShortcut && !$0.isCanvasLocal && $0 != .panCanvas }.map(WindowClickAction.command)
+        }
+    }
+
+    static func windowClickAction(double: Bool) -> WindowClickAction {
+        let key = double ? "CanvasDoubleClickCommand" : "CanvasSingleClickCommand"
+        if let raw = defaults.string(forKey: key), let command = Command(rawValue: raw),
+           WindowClickAction.choices.contains(.command(command)) { return .command(command) }
+        return .standard(double ? doubleClickBehavior : singleClickBehavior)
+    }
+
+    static func setWindowClickAction(_ action: WindowClickAction, double: Bool) {
+        let key = double ? "CanvasDoubleClickCommand" : "CanvasSingleClickCommand"
+        switch action {
+        case .standard(let behavior):
+            defaults.removeObject(forKey: key)
+            if double { doubleClickBehavior = behavior } else { singleClickBehavior = behavior }
+        case .command(let command):
+            defaults.set(command.rawValue, forKey: key)
+        }
+    }
+
+    enum ScrollBehavior: String, CaseIterable {
+        case pan, zoom, none
+        var title: String {
+            switch self {
+            case .pan: return "Pan canvas"
+            case .zoom: return "Zoom canvas"
+            case .none: return "Nothing"
+            }
+        }
+    }
+
+    static var canvasScrollBehavior: ScrollBehavior {
+        get { defaults.string(forKey: "CanvasScrollBehavior").flatMap(ScrollBehavior.init(rawValue:)) ?? .pan }
+        set { defaults.set(newValue.rawValue, forKey: "CanvasScrollBehavior") }
+    }
+
+    static var canvasPinchEnabled: Bool {
+        get { defaults.object(forKey: "CanvasPinchEnabled") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "CanvasPinchEnabled") }
+    }
+
     enum WindowSnapStrength: String, CaseIterable {
         case strong, normal
 
@@ -1232,12 +1287,6 @@ private struct CanvasPane: View {
                     RowLabel(title: "Center after four-finger pan",
                              subtitle: "Center on a nearby window after the pan comes to rest.")
                 }
-                Picker("Single-click window", selection: model.bind({ Settings.singleClickBehavior }, { Settings.singleClickBehavior = $0 })) {
-                    ForEach(Settings.SingleClickBehavior.allCases, id: \.self) { Text($0.title) }
-                }
-                Picker("Double-click window", selection: model.bind({ Settings.doubleClickBehavior }, { Settings.doubleClickBehavior = $0 })) {
-                    ForEach(Settings.SingleClickBehavior.allCases, id: \.self) { Text($0.title) }
-                }
                 Toggle(isOn: model.bind({ Settings.panInertia }, { Settings.panInertia = $0 })) {
                     RowLabel(title: "Inertia when panning",
                              subtitle: "A four-finger or scroll pan keeps gliding for a moment after the fingers lift.")
@@ -1635,13 +1684,10 @@ struct ShortcutsPane: View {
                               detail: "Strip Mode, See Everything and Show Desktop. Show Desktop is F11 by default; while Sunlight has taken over the Mac, its key tap hands F11 here, and puts it back when the key is changed.")
             }
             Section {
-                LabeledContent("Save Layout…") { Text("⌘S").foregroundStyle(.secondary) }
-                LabeledContent("Restore a layout") { Text("⌘1 – ⌘9").foregroundStyle(.secondary) }
-                LabeledContent("Settings…") { Text("⌘,").foregroundStyle(.secondary) }
-                LabeledContent("Sunlight Instructions") { Text("⌘?").foregroundStyle(.secondary) }
+                rows(for: .menus)
             } header: {
                 SectionHeader(title: "Menus",
-                              detail: "The Mac’s own menu keys, kept as they are. Everything else is in the sun-rays icon in the menu bar.")
+                              detail: "These shortcuts work while a Sunlight window is active. Layout numbers follow the order of your saved layouts.")
             }
             Section {
                 HStack {
@@ -1676,6 +1722,7 @@ struct ShortcutsPane: View {
 
     private func subtitle(for command: Command) -> String? {
         if command.isCanvasLocal { return "Works while the canvas is focused." }
+        if command.isMenuShortcut { return "Works while a Sunlight window is active." }
         guard !command.isAvailable(arranging: Settings.arranging,
                                    strip: Settings.stripModeEnabled,
                                    displays: true) else { return nil }
