@@ -2248,9 +2248,12 @@ final class CanvasView: NSView {
         doubleClickProxy = nil
         previousWindowClickForDouble = nil
         // ⌃-click is a right-click.
-        if event.modifierFlags.contains(.control), let menu = menu(for: event) {
-            NSMenu.popUpContextMenu(menu, with: event, for: self)
-            return
+        if event.modifierFlags.contains(.control) {
+            if performSecondaryClick(event) { return }
+            if let menu = menu(for: event) {
+                NSMenu.popUpContextMenu(menu, with: event, for: self)
+                return
+            }
         }
         if CanvasView.isPassedOn(event) { return }
         let screenPoint = topLeftPoint(event)
@@ -2328,6 +2331,23 @@ final class CanvasView: NSView {
         } else {
             panning = true
             lastPointer = screenPoint
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if CanvasView.isPassedOn(event) { return }
+        if !performSecondaryClick(event) { super.rightMouseDown(with: event) }
+    }
+
+    /// Returns false to let AppKit show the ordinary context menu.
+    private func performSecondaryClick(_ event: NSEvent) -> Bool {
+        switch Settings.secondaryClickAction {
+        case .contextMenu: return false
+        case .none: return true
+        case .command(let command):
+            let point = camera.toWorld(topLeftPoint(event))
+            if let proxy = proxy(at: point), proxy.kind == .window { onClickCommand?(proxy, command) }
+            return true
         }
     }
 
@@ -2541,13 +2561,13 @@ final class CanvasView: NSView {
         guard inFront else { return }
         // At 1:1 a scroll over a window is the window's, as on the desktop; ⌥ and ⌘ still zoom.
         let screenPoint = topLeftPoint(event)
-        if starts, isOneToOne, !event.modifierFlags.contains(.option), !event.modifierFlags.contains(.command),
+        let modifiedZoom = Settings.scrollZoomModifier.matches(event.modifierFlags)
+        if starts, isOneToOne, !modifiedZoom,
            isCovered?(screenPoint) != true, let p = proxy(at: camera.toWorld(screenPoint)), p.kind == .window {
             scrollingOn = true
             onUseScroll?(p, screenPoint, event)
             return
         }
-        let modifiedZoom = event.modifierFlags.contains(.option) || event.modifierFlags.contains(.command)
         guard modifiedZoom || Settings.canvasScrollBehavior != .none else { return }
         // The Mac's own momentum events come through here too, so a scroll pan coasts by itself; with
         // pan inertia off in Settings (or Reduce Motion on) they're dropped and the pan stops with the

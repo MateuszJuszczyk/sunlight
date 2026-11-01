@@ -37,7 +37,7 @@ final class SettingsTests: XCTestCase {
     func testNavigationPreferencesDefaultAndRoundTrip() async {
         await MainActor.run {
             let defaults = UserDefaults.standard
-            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior", "CanvasScrollBehavior", "CanvasPinchEnabled", "CanvasSingleClickCommand", "CanvasDoubleClickCommand",
+            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled", "CanvasSingleClickCommand", "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand",
                         "windowSnapStrength", "cameraPanSensitivity"]
             let saved = keys.map { defaults.object(forKey: $0) }
             defer {
@@ -58,11 +58,25 @@ final class SettingsTests: XCTestCase {
             XCTAssertEqual(Settings.windowClickAction(double: false), .standard(.none))
             Settings.singleClickBehavior = .centerWindow
             XCTAssertEqual(Settings.canvasScrollBehavior, .pan)
+            XCTAssertTrue(Settings.scrollZoomModifier.matches([.option]))
+            XCTAssertTrue(Settings.scrollZoomModifier.matches([.command]))
+            XCTAssertFalse(Settings.scrollZoomModifier.matches([.shift]))
             XCTAssertTrue(Settings.canvasPinchEnabled)
             Settings.canvasScrollBehavior = .zoom
+            Settings.scrollZoomModifier = .shift
+            XCTAssertTrue(Settings.scrollZoomModifier.matches([.shift]))
+            XCTAssertFalse(Settings.scrollZoomModifier.matches([.option]))
             Settings.canvasPinchEnabled = false
+            Settings.secondaryClickAction = .command(.tidy)
+            XCTAssertEqual(Settings.secondaryClickAction, .command(.tidy))
             XCTAssertEqual(Settings.canvasScrollBehavior, .zoom)
             XCTAssertFalse(Settings.canvasPinchEnabled)
+            Settings.resetTrackpadControls()
+            XCTAssertEqual(Settings.canvasScrollBehavior, .pan)
+            XCTAssertEqual(Settings.scrollZoomModifier, .optionOrCommand)
+            XCTAssertTrue(Settings.canvasPinchEnabled)
+            XCTAssertEqual(Settings.secondaryClickAction, .contextMenu)
+            XCTAssertEqual(Settings.windowClickAction(double: false), .standard(.centerWindow))
             Settings.singleClickBehavior = .enterAtClickPosition
             XCTAssertEqual(Settings.doubleClickBehavior, .centerWindow)
             Settings.doubleClickBehavior = .none

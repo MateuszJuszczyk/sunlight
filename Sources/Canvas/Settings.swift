@@ -375,6 +375,38 @@ enum Settings {
         }
     }
 
+    enum SecondaryClickAction: Hashable {
+        case contextMenu, none, command(Command)
+        var title: String {
+            switch self {
+            case .contextMenu: return "Context menu"
+            case .none: return "Nothing"
+            case .command(let command): return command.menuTitle
+            }
+        }
+        static var choices: [SecondaryClickAction] {
+            [.contextMenu, .none] + Command.allCases
+                .filter { !$0.isMenuShortcut && !$0.isCanvasLocal && $0 != .panCanvas }
+                .map(SecondaryClickAction.command)
+        }
+    }
+
+    static var secondaryClickAction: SecondaryClickAction {
+        get {
+            guard let raw = defaults.string(forKey: "CanvasSecondaryClickCommand") else { return .contextMenu }
+            if raw == "none" { return .none }
+            guard let command = Command(rawValue: raw), SecondaryClickAction.choices.contains(.command(command)) else { return .contextMenu }
+            return .command(command)
+        }
+        set {
+            switch newValue {
+            case .contextMenu: defaults.removeObject(forKey: "CanvasSecondaryClickCommand")
+            case .none: defaults.set("none", forKey: "CanvasSecondaryClickCommand")
+            case .command(let command): defaults.set(command.rawValue, forKey: "CanvasSecondaryClickCommand")
+            }
+        }
+    }
+
     enum ScrollBehavior: String, CaseIterable {
         case pan, zoom, none
         var title: String {
@@ -391,9 +423,46 @@ enum Settings {
         set { defaults.set(newValue.rawValue, forKey: "CanvasScrollBehavior") }
     }
 
+    enum ScrollZoomModifier: String, CaseIterable {
+        case optionOrCommand, option, command, control, shift, none
+        var title: String {
+            switch self {
+            case .optionOrCommand: return "Option or Command"
+            case .option: return "Option"
+            case .command: return "Command"
+            case .control: return "Control"
+            case .shift: return "Shift"
+            case .none: return "None"
+            }
+        }
+        func matches(_ flags: NSEvent.ModifierFlags) -> Bool {
+            switch self {
+            case .optionOrCommand: return !flags.intersection([.option, .command]).isEmpty
+            case .option: return flags.contains(.option)
+            case .command: return flags.contains(.command)
+            case .control: return flags.contains(.control)
+            case .shift: return flags.contains(.shift)
+            case .none: return false
+            }
+        }
+    }
+
+    static var scrollZoomModifier: ScrollZoomModifier {
+        get { defaults.string(forKey: "CanvasScrollZoomModifier").flatMap(ScrollZoomModifier.init(rawValue:)) ?? .optionOrCommand }
+        set { defaults.set(newValue.rawValue, forKey: "CanvasScrollZoomModifier") }
+    }
+
     static var canvasPinchEnabled: Bool {
         get { defaults.object(forKey: "CanvasPinchEnabled") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "CanvasPinchEnabled") }
+    }
+
+    static func resetTrackpadControls() {
+        for key in [singleClickBehaviorKey, doubleClickBehaviorKey, "CanvasSingleClickCommand",
+                    "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled"] {
+            defaults.removeObject(forKey: key)
+        }
+        Bindings.resetGestures()
     }
 
     enum WindowSnapStrength: String, CaseIterable {

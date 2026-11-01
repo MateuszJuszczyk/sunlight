@@ -18,11 +18,11 @@ enum ShortcutReference {
             .compactMap { $0 }.joined(separator: " · ")
         let zoom = [Settings.canvasPinchEnabled ? "pinch" : nil,
                     Settings.canvasScrollBehavior == .zoom ? "two-finger scroll" : nil,
-                    "⌥ or ⌘ scroll"].compactMap { $0 }.joined(separator: " · ")
+                    Settings.scrollZoomModifier == .none ? nil : "\(Settings.scrollZoomModifier.title) + scroll"].compactMap { $0 }.joined(separator: " · ")
         let pan = [Settings.canvasScrollBehavior == .pan ? "two-finger scroll" : nil,
                    gestureLine(for: .panCanvas)].compactMap { $0 }.joined(separator: " · ")
         return [
-            Row(title: "Zoom", keys: zoom),
+            Row(title: "Zoom", keys: zoom.isEmpty ? "—" : zoom),
             Row(title: "Pan", keys: pan.isEmpty ? "—" : pan),
             Row(title: "Move a window", keys: "drag"),
             Row(title: "Flip a window's pole", keys: (Bindings.shortcut(for: .flipPolarity)?.label ?? "—") + " · its ⊕/⊖ button"),

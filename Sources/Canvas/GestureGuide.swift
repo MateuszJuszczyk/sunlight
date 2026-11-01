@@ -641,9 +641,15 @@ struct TrackpadPane: View {
                 Picker("Double-click window", selection: clickBinding(double: true)) {
                     ForEach(Settings.WindowClickAction.choices, id: \.self) { Text($0.title) }
                 }
+                Picker("Secondary click", selection: Binding(
+                    get: { Settings.secondaryClickAction },
+                    set: { Settings.secondaryClickAction = $0; revision += 1 }
+                )) {
+                    ForEach(Settings.SecondaryClickAction.choices, id: \.self) { Text($0.title) }
+                }
             } header: {
                 SectionHeader(title: "Window clicks",
-                              detail: "The first click acts immediately, including when followed by a second click. These choices also apply to a mouse.")
+                              detail: "On the canvas, the first click acts immediately, including before a second click. Secondary-click commands use the window under the pointer. At 1:1, primary clicks reach the window. These choices also apply to a mouse.")
             }
             Section {
                 Picker("Two-finger scroll", selection: Binding(
@@ -652,13 +658,19 @@ struct TrackpadPane: View {
                 )) {
                     ForEach(Settings.ScrollBehavior.allCases, id: \.self) { Text($0.title) }
                 }
+                Picker("Zoom with scroll while holding", selection: Binding(
+                    get: { Settings.scrollZoomModifier },
+                    set: { Settings.scrollZoomModifier = $0; revision += 1 }
+                )) {
+                    ForEach(Settings.ScrollZoomModifier.allCases, id: \.self) { Text($0.title) }
+                }
                 Toggle("Pinch to zoom canvas", isOn: Binding(
                     get: { Settings.canvasPinchEnabled },
                     set: { Settings.canvasPinchEnabled = $0; revision += 1 }
                 ))
             } header: {
                 SectionHeader(title: "Zoom and pan",
-                              detail: "These apply to the canvas. Scroll over a window at 1:1 still reaches that window; ⌥ or ⌘ with scroll still zooms.")
+                              detail: "These apply to the canvas. Scroll over a window at 1:1 still reaches that window unless the zoom modifier is held.")
             }
             Section {
                 ForEach(TrackpadGesture.allCases) { item in
@@ -673,11 +685,10 @@ struct TrackpadPane: View {
                 }
                 HStack {
                     Spacer()
-                    Button("Restore Defaults") {
-                        Bindings.resetGestures()
+                    Button("Restore Trackpad Defaults") {
+                        Settings.resetTrackpadControls()
                         revision += 1
                     }
-                    .disabled(TrackpadGesture.allCases.allSatisfy { Bindings.command(for: $0) == $0.defaultCommand })
                 }
             } header: {
                 SectionHeader(title: "What they do",
@@ -699,6 +710,7 @@ struct TrackpadPane: View {
     private func actionTitle(_ item: GestureGuide.Gesture) -> String {
         if item == .click { return Settings.windowClickAction(double: false).title }
         if item == .doubleClick { return Settings.windowClickAction(double: true).title }
+        if item == .secondaryClick { return Settings.secondaryClickAction.title }
         if item == .scroll { return Settings.canvasScrollBehavior.title }
         if item == .pinch { return Settings.canvasPinchEnabled ? "Zoom canvas" : "Nothing" }
         guard let gesture = item.trackpadGesture else { return item.title }
