@@ -2389,6 +2389,14 @@ final class CanvasView: NSView {
         } else if var d = dragging {
             if !d.moved {
                 guard hypot(screenPoint.x - d.start.x, screenPoint.y - d.start.y) >= CanvasView.dragSlop else { return }
+                if d.proxy.kind == .window, Settings.windowDragAction != .moveWindow {
+                    dragging = nil
+                    if Settings.windowDragAction == .panCanvas {
+                        panning = true
+                        lastPointer = screenPoint
+                    }
+                    return
+                }
                 // A widget the setting places stays put: the drag pans the canvas, as on the ground.
                 if isPlacedBySetting?(d.proxy) == true {
                     dragging = nil

@@ -37,7 +37,7 @@ final class SettingsTests: XCTestCase {
     func testNavigationPreferencesDefaultAndRoundTrip() async {
         await MainActor.run {
             let defaults = UserDefaults.standard
-            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled", "CanvasSingleClickCommand", "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand",
+            let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled", "CanvasSingleClickCommand", "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand", "CanvasWindowDragAction",
                         "windowSnapStrength", "cameraPanSensitivity"]
             let saved = keys.map { defaults.object(forKey: $0) }
             defer {
@@ -69,6 +69,8 @@ final class SettingsTests: XCTestCase {
             Settings.canvasPinchEnabled = false
             Settings.secondaryClickAction = .command(.tidy)
             XCTAssertEqual(Settings.secondaryClickAction, .command(.tidy))
+            Settings.windowDragAction = .panCanvas
+            XCTAssertEqual(Settings.windowDragAction, .panCanvas)
             XCTAssertEqual(Settings.canvasScrollBehavior, .zoom)
             XCTAssertFalse(Settings.canvasPinchEnabled)
             Settings.resetTrackpadControls()
@@ -76,6 +78,7 @@ final class SettingsTests: XCTestCase {
             XCTAssertEqual(Settings.scrollZoomModifier, .optionOrCommand)
             XCTAssertTrue(Settings.canvasPinchEnabled)
             XCTAssertEqual(Settings.secondaryClickAction, .contextMenu)
+            XCTAssertEqual(Settings.windowDragAction, .moveWindow)
             XCTAssertEqual(Settings.windowClickAction(double: false), .standard(.centerWindow))
             Settings.singleClickBehavior = .enterAtClickPosition
             XCTAssertEqual(Settings.doubleClickBehavior, .centerWindow)

@@ -407,6 +407,22 @@ enum Settings {
         }
     }
 
+    enum WindowDragAction: String, CaseIterable {
+        case moveWindow, panCanvas, none
+        var title: String {
+            switch self {
+            case .moveWindow: return "Move window"
+            case .panCanvas: return "Pan canvas"
+            case .none: return "Nothing"
+            }
+        }
+    }
+
+    static var windowDragAction: WindowDragAction {
+        get { defaults.string(forKey: "CanvasWindowDragAction").flatMap(WindowDragAction.init(rawValue:)) ?? .moveWindow }
+        set { defaults.set(newValue.rawValue, forKey: "CanvasWindowDragAction") }
+    }
+
     enum ScrollBehavior: String, CaseIterable {
         case pan, zoom, none
         var title: String {
@@ -459,7 +475,7 @@ enum Settings {
 
     static func resetTrackpadControls() {
         for key in [singleClickBehaviorKey, doubleClickBehaviorKey, "CanvasSingleClickCommand",
-                    "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled"] {
+                    "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand", "CanvasWindowDragAction", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled"] {
             defaults.removeObject(forKey: key)
         }
         Bindings.resetGestures()

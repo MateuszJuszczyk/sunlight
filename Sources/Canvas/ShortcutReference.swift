@@ -24,7 +24,7 @@ enum ShortcutReference {
         return [
             Row(title: "Zoom", keys: zoom.isEmpty ? "—" : zoom),
             Row(title: "Pan", keys: pan.isEmpty ? "—" : pan),
-            Row(title: "Move a window", keys: "drag"),
+            Row(title: "Drag a window", keys: Settings.windowDragAction.title),
             Row(title: "Flip a window's pole", keys: (Bindings.shortcut(for: .flipPolarity)?.label ?? "—") + " · its ⊕/⊖ button"),
             Row(title: "Single-click a window", keys: Settings.windowClickAction(double: false).title),
             Row(title: "Double-click a window", keys: Settings.windowClickAction(double: true).title),

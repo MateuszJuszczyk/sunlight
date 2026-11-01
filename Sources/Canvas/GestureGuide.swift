@@ -647,6 +647,12 @@ struct TrackpadPane: View {
                 )) {
                     ForEach(Settings.SecondaryClickAction.choices, id: \.self) { Text($0.title) }
                 }
+                Picker("Drag a window", selection: Binding(
+                    get: { Settings.windowDragAction },
+                    set: { Settings.windowDragAction = $0; revision += 1 }
+                )) {
+                    ForEach(Settings.WindowDragAction.allCases, id: \.self) { Text($0.title) }
+                }
             } header: {
                 SectionHeader(title: "Window clicks",
                               detail: "On the canvas, the first click acts immediately, including before a second click. Secondary-click commands use the window under the pointer. At 1:1, primary clicks reach the window. These choices also apply to a mouse.")
@@ -711,6 +717,7 @@ struct TrackpadPane: View {
         if item == .click { return Settings.windowClickAction(double: false).title }
         if item == .doubleClick { return Settings.windowClickAction(double: true).title }
         if item == .secondaryClick { return Settings.secondaryClickAction.title }
+        if item == .drag { return Settings.windowDragAction.title }
         if item == .scroll { return Settings.canvasScrollBehavior.title }
         if item == .pinch { return Settings.canvasPinchEnabled ? "Zoom canvas" : "Nothing" }
         guard let gesture = item.trackpadGesture else { return item.title }
