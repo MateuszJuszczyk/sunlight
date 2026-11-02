@@ -104,6 +104,39 @@ final class PanReleaseTests: XCTestCase {
         XCTAssertEqual(stillChecks, 0)
     }
 
+    func testPanThatMissesAtReleaseChecksAgainAfterGlide() throws {
+        try XCTSkipIf(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, "Coasting is disabled by Reduce Motion")
+        let defaults = UserDefaults.standard
+        let keys = ["SnapOnPanRelease", "autoCenterAfterFourFingerPan", "CanvasPanInertia", "TrackpadCameraSensitivity"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, saved) { if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) } } }
+        Settings.snapOnPanRelease = true
+        Settings.autoCenterAfterFourFingerPan = false
+        Settings.panInertia = true
+        Settings.trackpadCameraSensitivity = 1
+        let view = CanvasView(frame: NSRect(x: 0, y: 0, width: 1000, height: 1000))
+        let visible = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+        let windows = [WindowSnap.Window(rect: visible, spot: .zero),
+                       WindowSnap.Window(rect: visible.offsetBy(dx: 1200, dy: 0), spot: .zero)]
+        var targets: [Int?] = []
+        view.onPanRelease = { start in
+            let hit = WindowSnap.releaseTarget(camera: view.camera, viewSize: visible.size, visible: visible,
+                                               windows: windows, strength: .normal, sensitivity: 1, panStart: start)
+            targets.append(hit?.index)
+            return hit != nil
+        }
+        view.trackpadPan(by: CGVector(dx: -0.4, dy: 0))
+        view.trackpadPanEnded(releaseVelocity: CGVector(dx: -400, dy: 0))
+        XCTAssertEqual(targets.count, 1)
+        XCTAssertNil(targets[0], "The gap at release should not snap")
+        let coast = try XCTUnwrap(view.coast)
+        view.set(camera: Camera(origin: CGPoint(x: 1200, y: 0), zoom: 1))
+        view.tickInput(at: coast.start + 5)
+        view.settleIfStill(at: coast.start + 5)
+        XCTAssertEqual(targets.count, 2)
+        XCTAssertEqual(targets.last!, 1, "The window reached by the glide should snap at rest")
+    }
+
     func testPanBufferedWhileReturningToCanvasKeepsGlidingAfterReleaseInGap() throws {
         try XCTSkipIf(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, "Coasting is disabled by Reduce Motion")
         let defaults = UserDefaults.standard

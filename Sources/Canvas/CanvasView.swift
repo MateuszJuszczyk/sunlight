@@ -404,6 +404,8 @@ final class CanvasView: NSView {
     private var settleWhenStill = false
     /// The latest camera input was a four-finger pan, including its inertial tail.
     private var settleAfterFourFingerPan = false
+    /// A release that missed can still settle onto a window after the inertial pan.
+    private var coastSnapStart: Camera?
     /// Fingers still on the trackpad: a scroll, a pinch or a four-finger drag that hasn't ended. A pause
     /// with them down isn't a rest.
     private var scrollHeld = false
@@ -1144,15 +1146,22 @@ final class CanvasView: NSView {
             settleWhenStill = false
             settleAfterFourFingerPan = false
             if snapped { return }
+            coastSnapStart = startCamera
         }
         guard Settings.panInertia, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         coast = Motion.PanCoast(velocity: v, at: now)
-        if coast != nil { startDisplayLink() }
+        if coast != nil {
+            if coastSnapStart != nil { settleWhenStill = true; settleAfterFourFingerPan = true }
+            startDisplayLink()
+        } else {
+            coastSnapStart = nil
+        }
     }
 
     /// The four-finger drag turned out to be a flick: the pan stops where it is, no coast.
     func trackpadPanCancelled() {
         panStartCamera = nil
+        coastSnapStart = nil
         panTravel = .zero
         panVelocity = Magnetism.Velocity()
         fourFingersHeld = false
@@ -1177,12 +1186,17 @@ final class CanvasView: NSView {
     }
 
     /// At rest after the user moved it, nothing held and nothing in hand: `onSettle` gets its one look.
-    private func settleIfStill(at now: CFTimeInterval) {
+    func settleIfStill(at now: CFTimeInterval) {
         guard settleWhenStill, animation == nil, flight == nil, magnet == nil, pending.isEmpty, coast == nil,
               zoomCoast == nil, now - lastInput > CanvasView.inputLinger, !scrollHeld, !pinchHeld,
               !fourFingersHeld, !panning, dragging == nil, resizing == nil else { return }
         settleWhenStill = false
-        _ = onSettle?()
+        if settleAfterFourFingerPan, let start = coastSnapStart {
+            coastSnapStart = nil
+            _ = onPanRelease?(start)
+        } else {
+            _ = onSettle?()
+        }
         settleAfterFourFingerPan = false
     }
 
@@ -1191,6 +1205,7 @@ final class CanvasView: NSView {
     /// and restarted between the events of one gesture.
     private func beginInput() {
         pendingWindowClick = nil
+        coastSnapStart = nil
         settleAfterFourFingerPan = false
         lastInput = CACurrentMediaTime()
         settleWhenStill = true
@@ -1426,7 +1441,7 @@ final class CanvasView: NSView {
     }
 
     /// The input gathered since the last frame and the coasts, as one camera change.
-    private func tickInput(at now: CFTimeInterval) {
+    func tickInput(at now: CFTimeInterval) {
         var input = pending
         pending = Motion.PendingInput()
         let from = lastTick ?? now
