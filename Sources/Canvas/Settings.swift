@@ -1399,8 +1399,8 @@ private struct CanvasPane: View {
                 sensitivitySlider("Mouse camera sensitivity", value: model.bind({ Settings.mouseCameraSensitivity }, { Settings.mouseCameraSensitivity = $0 }), range: 0.25...3,
                                   detail: "Controls mouse-wheel navigation and pointer dragging on the canvas.")
                 Toggle(isOn: model.bind({ Settings.autoCenterAfterFourFingerPan }, { Settings.autoCenterAfterFourFingerPan = $0 })) {
-                    RowLabel(title: "Directional snap after four-finger pan",
-                             subtitle: "When released, move to a neighboring window in the direction of travel.")
+                    RowLabel(title: "Niri-like navigation",
+                             subtitle: "On four-finger release, immediately enter the nearest window in the swipe direction.")
                 }
                 Toggle(isOn: model.bind({ Settings.panInertia }, { Settings.panInertia = $0 })) {
                     RowLabel(title: "Inertia when panning",

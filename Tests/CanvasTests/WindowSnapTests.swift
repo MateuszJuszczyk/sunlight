@@ -118,6 +118,33 @@ final class WindowSnapTests: XCTestCase {
                                           sensitivity: 4, requireCenterInside: true, panStart: away))
     }
 
+    func testNiriModeSelectsNextWindowWhileFreePanKeepsGliding() {
+        let size = CGSize(width: 1000, height: 1000)
+        let visible = CGRect(origin: .zero, size: size)
+        let previous = WindowSnap.Window(rect: visible, spot: .zero)
+        let next = WindowSnap.Window(rect: visible.offsetBy(dx: 1200, dy: 0), spot: .zero)
+        let start = Camera(origin: .zero, zoom: 1)
+        let released = Camera(origin: CGPoint(x: 200, y: 0), zoom: 1)
+        let free = WindowSnap.releaseTarget(camera: released, viewSize: size, visible: visible,
+                                            windows: [previous, next], strength: .normal,
+                                            sensitivity: 1, panStart: start)
+        XCTAssertNil(free)
+        let niri = WindowSnap.releaseTarget(camera: released, viewSize: size, visible: visible,
+                                            windows: [previous, next], strength: .normal, sensitivity: 1,
+                                            panStart: start, direction: CGVector(dx: 100, dy: 0), preferredIndex: 0)
+        XCTAssertEqual(niri?.index, 1)
+        XCTAssertEqual(niri?.directional, true)
+        let noNeighbour = WindowSnap.releaseTarget(camera: released, viewSize: size, visible: visible,
+                                                   windows: [previous], strength: .normal, sensitivity: 1,
+                                                   panStart: start, direction: CGVector(dx: 100, dy: 0), preferredIndex: 0)
+        XCTAssertNil(noNeighbour)
+        let fallbackDisabled = WindowSnap.releaseTarget(camera: start, viewSize: size, visible: visible,
+                                                        windows: [previous], strength: .normal, sensitivity: 1,
+                                                        panStart: start, direction: CGVector(dx: 100, dy: 0),
+                                                        preferredIndex: 0, allowFallback: false)
+        XCTAssertNil(fallbackDisabled)
+    }
+
     func testStrongDoesNotCaptureInvisibleWindowAndCanSnapFromOverview() {
         let hidden = WindowSnap.Window(rect: CGRect(x: 3000, y: 500, width: 20, height: 20), spot: CGPoint(x: -100, y: 100))
         let camera = Camera(origin: CGPoint(x: 3100, y: 400), zoom: 1)

@@ -4405,7 +4405,7 @@ final class CanvasController {
     /// use the nearby snap. Both use the same placement plan as handoff.
     private func snapToWindow(pan: (Camera, CGVector)? = nil, requireCenterInside: Bool = false,
                               releaseStart: Camera? = nil) -> Bool {
-        guard Settings.snapToWindows, !handingOff, NSApp.isActive, activeProxy == nil, switcher == nil,
+        guard (Settings.snapToWindows || pan != nil), !handingOff, NSApp.isActive, activeProxy == nil, switcher == nil,
               !isShowingDesktop, addingWidgets == nil, !isSetupShowing else { return false }
         let windows = view.proxies.filter { $0.kind == .window && $0.away == nil && !$0.leaving }
         let visible = visibleTopLeft
@@ -4418,19 +4418,24 @@ final class CanvasController {
         let strength: WindowSnap.Strength = Settings.windowSnapStrength == .normal ? .normal : .strong
         let sensitivity = CGFloat(Settings.windowCenteringSensitivity)
         let preferred = lastActiveProxy.flatMap { active in windows.firstIndex { $0 === active } }
-        let releaseCenter = view.camera.toWorld(CGPoint(x: visible.midX, y: visible.midY))
-        let neighbour = pan.flatMap { WindowSnap.neighbour(from: $0.0, viewSize: view.bounds.size,
-                                                           windows: spots, direction: $0.1, preferredIndex: preferred,
-                                                           sensitivity: sensitivity) }.flatMap { candidate in
-            !requireCenterInside || spots[candidate.index].rect.contains(releaseCenter) ? candidate : nil
+        let selected: (index: Int, camera: Camera, directional: Bool)?
+        if requireCenterInside {
+            selected = WindowSnap.releaseTarget(camera: view.camera, viewSize: view.bounds.size, visible: visible,
+                                                windows: spots, strength: strength, sensitivity: sensitivity,
+                                                panStart: releaseStart, direction: pan?.1, preferredIndex: preferred,
+                                                allowFallback: Settings.snapToWindows)
+        } else {
+            selected = WindowSnap.target(camera: view.camera, viewSize: view.bounds.size, visible: visible,
+                                         windows: spots, strength: strength, sensitivity: sensitivity)
+                .map { ($0.index, $0.camera, false) }
         }
-        guard let hit = neighbour ?? WindowSnap.target(camera: view.camera, viewSize: view.bounds.size,
-                                                       visible: visible, windows: spots, strength: strength, sensitivity: sensitivity,
-                                                       requireCenterInside: requireCenterInside, panStart: releaseStart) else {
-            return false
-        }
+        guard let hit = selected else { return false }
         let p = windows[hit.index]
         NSLog("Snap: onto \(p.appName) — \(p.title)")
+        if hit.directional {
+            handoff(to: p)
+            return true
+        }
         view.snap(to: hit.camera) { [weak self, weak p] in
             guard let self, let p, self.proxies[p.windowID] === p else { return }
             self.handoff(to: p)

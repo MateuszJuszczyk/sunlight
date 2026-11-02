@@ -103,6 +103,24 @@ enum WindowSnap {
         return best.map { ($0.index, $0.camera) }
     }
 
+    /// Directional navigation chooses the next window immediately, even if the release happened in a
+    /// gap. Free pan only snaps when the release itself is over an eligible window.
+    static func releaseTarget(camera: Camera, viewSize: CGSize, visible: CGRect, windows: [Window],
+                              strength: Strength, sensitivity: CGFloat, panStart: Camera?,
+                              direction: CGVector? = nil, preferredIndex: Int? = nil, allowFallback: Bool = true)
+        -> (index: Int, camera: Camera, directional: Bool)? {
+        if let panStart, let direction,
+           let next = neighbour(from: panStart, viewSize: viewSize, windows: windows,
+                                direction: direction, preferredIndex: preferredIndex, sensitivity: sensitivity) {
+            return (next.index, next.camera, true)
+        }
+        guard allowFallback else { return nil }
+        guard let hit = target(camera: camera, viewSize: viewSize, visible: visible, windows: windows,
+                               strength: strength, sensitivity: sensitivity, requireCenterInside: true,
+                               panStart: panStart) else { return nil }
+        return (hit.index, hit.camera, false)
+    }
+
     /// Step from the window nearest the gesture's starting camera to a neighbour in the camera's
     /// travel direction. Bounds are in world points, so zooming out cannot capture distant windows.
     static func neighbour(from start: Camera, viewSize: CGSize, windows: [Window],
