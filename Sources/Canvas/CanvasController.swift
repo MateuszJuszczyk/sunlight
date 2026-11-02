@@ -342,10 +342,6 @@ final class CanvasController {
             else if let arrangement = command.arrangement { self.arrange(columns: arrangement.columns, rows: arrangement.rows, around: proxy) }
             else { self.desk?.perform(command, on: self) }
         }
-        view.onClickEnter = { [weak self] proxy, point, offset in
-            self?.preClickCamera = self?.view.camera
-            self?.handoff(to: proxy, placement: .clicked(at: point, offset: offset))
-        }
         view.onClickFocus = { [weak self] proxy in self?.focusFromFlight(proxy) }
         view.onUse = { [weak self] proxy, point, press in self?.use(proxy, around: point, press: press) }
         view.onPassThrough = { [weak self] proxy in self?.passThrough(to: proxy) }
