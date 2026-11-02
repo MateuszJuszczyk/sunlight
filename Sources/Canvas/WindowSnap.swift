@@ -39,7 +39,8 @@ enum WindowSnap {
     /// The closest eligible window and its 1:1 camera. Equal distances are resolved by world geometry,
     /// rather than the order in which windows happened to be listed.
     static func target(camera: Camera, viewSize: CGSize, visible: CGRect, windows: [Window],
-                       strength: Strength = .normal, sensitivity: CGFloat = 1) -> (index: Int, camera: Camera)? {
+                       strength: Strength = .normal, sensitivity: CGFloat = 1,
+                       requireCenterInside: Bool = false, panStart: Camera? = nil) -> (index: Int, camera: Camera)? {
         let reach: CGFloat
         switch strength {
         case .normal: reach = normalReach
@@ -56,6 +57,17 @@ enum WindowSnap {
                   strength != .normal || (w.rect.width >= visible.width * minimumFill &&
                                           w.rect.height >= visible.height * minimumFill) else { continue }
             let now = camera.toScreen(w.rect)
+            if requireCenterInside && !now.contains(CGPoint(x: visible.midX, y: visible.midY)) { continue }
+            if let panStart {
+                let midpoint = CGPoint(x: visible.midX, y: visible.midY)
+                let start = panStart.toWorld(midpoint)
+                let end = camera.toWorld(midpoint)
+                if w.rect.contains(start) {
+                    let before = hypot(start.x - w.rect.midX, start.y - w.rect.midY)
+                    let after = hypot(end.x - w.rect.midX, end.y - w.rect.midY)
+                    if after > before + 1 { continue }
+                }
+            }
             let intersection = now.intersection(visible)
             guard !intersection.isNull, intersection.width > 0, intersection.height > 0 else { continue }
             let destination = Camera(origin: CGPoint(x: w.rect.minX - w.spot.x, y: w.rect.minY - w.spot.y), zoom: 1)

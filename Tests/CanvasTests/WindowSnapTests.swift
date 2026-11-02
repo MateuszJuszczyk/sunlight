@@ -89,6 +89,35 @@ final class WindowSnapTests: XCTestCase {
         XCTAssertNotNil(WindowSnap.target(camera: far, viewSize: size, visible: area, windows: [full], sensitivity: 4))
     }
 
+    func testReleaseInGapDoesNotReturnToPreviousWindowEvenAtHighSensitivity() {
+        let size = CGSize(width: 1000, height: 1000)
+        let visible = CGRect(origin: .zero, size: size)
+        let previous = WindowSnap.Window(rect: visible, spot: .zero)
+        let next = WindowSnap.Window(rect: visible.offsetBy(dx: 1200, dy: 0), spot: .zero)
+        let inGap = Camera(origin: CGPoint(x: 600, y: 0), zoom: 1)
+        XCTAssertNil(WindowSnap.target(camera: inGap, viewSize: size, visible: visible,
+                                       windows: [previous, next], sensitivity: 4, requireCenterInside: true))
+        let overNext = Camera(origin: CGPoint(x: 800, y: 0), zoom: 1)
+        XCTAssertEqual(WindowSnap.target(camera: overNext, viewSize: size, visible: visible,
+                                         windows: [previous, next], sensitivity: 4, requireCenterInside: true)?.index, 1)
+        // The new restriction belongs to pan release; other snap callers retain their prior behavior.
+        XCTAssertNotNil(WindowSnap.target(camera: inGap, viewSize: size, visible: visible,
+                                          windows: [previous], sensitivity: 4))
+    }
+
+    func testPanAwayDoesNotSnapBackWhileStillOverStartingWindow() {
+        let size = CGSize(width: 1000, height: 1000)
+        let visible = CGRect(origin: .zero, size: size)
+        let window = WindowSnap.Window(rect: visible, spot: .zero)
+        let start = Camera(origin: .zero, zoom: 1)
+        let away = Camera(origin: CGPoint(x: 100, y: 0), zoom: 1)
+        XCTAssertNil(WindowSnap.target(camera: away, viewSize: size, visible: visible, windows: [window],
+                                       sensitivity: 4, requireCenterInside: true, panStart: start))
+        let returning = Camera(origin: CGPoint(x: 50, y: 0), zoom: 1)
+        XCTAssertNotNil(WindowSnap.target(camera: returning, viewSize: size, visible: visible, windows: [window],
+                                          sensitivity: 4, requireCenterInside: true, panStart: away))
+    }
+
     func testStrongDoesNotCaptureInvisibleWindowAndCanSnapFromOverview() {
         let hidden = WindowSnap.Window(rect: CGRect(x: 3000, y: 500, width: 20, height: 20), spot: CGPoint(x: -100, y: 100))
         let camera = Camera(origin: CGPoint(x: 3100, y: 400), zoom: 1)

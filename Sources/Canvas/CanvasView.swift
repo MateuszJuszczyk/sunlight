@@ -88,6 +88,8 @@ final class CanvasView: NSView {
     /// The camera came to rest after the user moved it (a pan, a pinch, a scroll, the minimap), the
     /// fingers off and any coast run out: true when the controller took it from there (`WindowSnap`).
     var onSettle: (() -> Bool)?
+    /// A pan released over the canvas: choose only a window under the center at that moment.
+    var onPanRelease: ((Camera?) -> Bool)?
     /// Four-finger release can snap immediately, before starting an inertial coast.
     var onFourFingerPanEnd: ((Camera, CGVector) -> Bool)?
     /// A flight's spring each frame: 0 where the move began, 1 where it ends (a little past 1 at the
@@ -308,6 +310,7 @@ final class CanvasView: NSView {
     private var scrollReleaseChecked = false
     private var discardScrollMomentum = false
     private var scrollGestureIsPrecise = false
+    private var scrollPanStartCamera: Camera?
 
     /// The canvas is back in front, or the window a scroll was passed to never got it: scrolls are the canvas's again.
     func endScrollingOn() { scrollingOn = false }
@@ -874,7 +877,7 @@ final class CanvasView: NSView {
             if Settings.autoCenterAfterFourFingerPan, let startCamera {
                 snapped = onFourFingerPanEnd?(startCamera, travel) == true
             } else {
-                snapped = onSettle?() == true
+                snapped = onPanRelease?(startCamera) == true
             }
             settleWhenStill = false
             settleAfterFourFingerPan = false
@@ -2565,6 +2568,7 @@ final class CanvasView: NSView {
             scrollReleaseChecked = false
             discardScrollMomentum = false
             scrollGestureIsPrecise = event.hasPreciseScrollingDeltas
+            scrollPanStartCamera = camera
         }
         // A trackpad scroll starting here while a window is in use is over another window or the canvas
         // around it: not the one passed on.
@@ -2604,7 +2608,8 @@ final class CanvasView: NSView {
             scrollHeld = false
             if event.phase == .ended, scrollGestureIsPrecise, !modifiedZoom, Settings.canvasScrollBehavior == .pan {
                 flushInput()
-                discardScrollMomentum = onSettle?() == true
+                discardScrollMomentum = onPanRelease?(scrollPanStartCamera) == true
+                scrollPanStartCamera = nil
                 scrollReleaseChecked = true
                 settleWhenStill = false
             } else {

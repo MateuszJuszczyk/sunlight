@@ -354,8 +354,9 @@ final class CanvasController {
         }
         view.onViewportChanged = { [weak self] in self?.scheduleCapturePass() }
         view.onSettle = { [weak self] in self?.snapToWindow() ?? false }
+        view.onPanRelease = { [weak self] start in self?.snapToWindow(requireCenterInside: true, releaseStart: start) ?? false }
         view.onFourFingerPanEnd = { [weak self] start, direction in
-            self?.snapToWindow(pan: (start, direction)) ?? false
+            self?.snapToWindow(pan: (start, direction), requireCenterInside: true, releaseStart: start) ?? false
         }
         view.onHover = { [weak self] p in if let p { self?.prefetchAX(p) } }
         view.onMoved = { [weak self] p in
@@ -4398,7 +4399,8 @@ final class CanvasController {
 
     /// A four-finger release favours a neighbour in the direction of travel; other gestures
     /// use the nearby snap. Both use the same placement plan as handoff.
-    private func snapToWindow(pan: (Camera, CGVector)? = nil) -> Bool {
+    private func snapToWindow(pan: (Camera, CGVector)? = nil, requireCenterInside: Bool = false,
+                              releaseStart: Camera? = nil) -> Bool {
         guard Settings.snapToWindows, !handingOff, NSApp.isActive, activeProxy == nil, switcher == nil,
               !isShowingDesktop, addingWidgets == nil, !isSetupShowing else { return false }
         let windows = view.proxies.filter { $0.kind == .window && $0.away == nil && !$0.leaving }
@@ -4412,11 +4414,15 @@ final class CanvasController {
         let strength: WindowSnap.Strength = Settings.windowSnapStrength == .normal ? .normal : .strong
         let sensitivity = CGFloat(Settings.windowCenteringSensitivity)
         let preferred = lastActiveProxy.flatMap { active in windows.firstIndex { $0 === active } }
+        let releaseCenter = view.camera.toWorld(CGPoint(x: visible.midX, y: visible.midY))
         let neighbour = pan.flatMap { WindowSnap.neighbour(from: $0.0, viewSize: view.bounds.size,
                                                            windows: spots, direction: $0.1, preferredIndex: preferred,
-                                                           sensitivity: sensitivity) }
+                                                           sensitivity: sensitivity) }.flatMap { candidate in
+            !requireCenterInside || spots[candidate.index].rect.contains(releaseCenter) ? candidate : nil
+        }
         guard let hit = neighbour ?? WindowSnap.target(camera: view.camera, viewSize: view.bounds.size,
-                                                       visible: visible, windows: spots, strength: strength, sensitivity: sensitivity) else {
+                                                       visible: visible, windows: spots, strength: strength, sensitivity: sensitivity,
+                                                       requireCenterInside: requireCenterInside, panStart: releaseStart) else {
             return false
         }
         let p = windows[hit.index]
