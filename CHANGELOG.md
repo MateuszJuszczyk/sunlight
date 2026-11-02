@@ -2,10 +2,9 @@
 
 ## Unreleased
 
-- Four-finger panning defaults to higher sensitivity. With automatic centring on, releasing a swipe moves directly to a nearby window in the direction of camera travel; otherwise the normal pan inertia remains available.
-- Directional swipes recognise vertically stacked tiled windows even when they share the same camera placement.
-- Strong window snapping can centre nearby smaller windows; Normal retains the original full-screen snap.
-- Overview clicks centre and enter windows by default; double-click enters at the clicked position. Settings can reverse these actions.
+- Configure shortcuts, trackpad gestures and camera sensitivity in Settings.
+- Optional release-time window centering, directional navigation and free four-finger steering.
+
 ## 0.2
 
 - Picture in Picture for any window: right-click a window > Picture in Picture (or ⌃⌥P over it, or from inside it) and it flies into a corner of the screen as a small live tile, the way a video does, and stays there wherever the canvas goes and while you work in anything else: a call, a video, a timer. It's still the real window, so a click in it works. Drag the tile and it springs to the nearest corner (a fling goes to the corner it's heading for; hold ⌘ to leave it anywhere); drag it past the left or right edge to tuck it away, leaving a tab that brings it back; resize it from its edges, or pinch, and it keeps its shape. Click it and it opens full size where the tile is, and shrinks back into its corner when the canvas comes back; hover it for the home button (back to its place on the canvas). Several windows can be tiles at once, each in its own corner, and tiles are remembered with the canvas and saved in layouts.

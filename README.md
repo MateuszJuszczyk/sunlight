@@ -1,40 +1,19 @@
-# What this fork changes
-
-This fork of [Sunlight](https://github.com/spacefarm-digital/sunlight) aims to make the move from
-[Niri](https://github.com/YaLTeR/niri) on Linux to macOS feel more natural. It pairs Sunlight's live
-windows and infinite canvas with faster, Niri-inspired trackpad navigation:
-
-- **Swipe between neighbours.** Optionally make a four-finger pan settle toward a nearby window in
-  the direction of travel.
-- **Stronger window snapping.** Optionally centre nearby smaller windows as well as large windows.
-- **Adjustable camera movement.** Tune sensitivity separately for trackpad and mouse; 100% matches Sunlight.
-- **Configurable window entry.** Choose whether a single or double click centres the window or enters
-  it at the clicked position. The defaults match Sunlight.
-
-The goal is a smooth, responsive window-management experience on macOS, not an exact Niri port or a
-claim of benchmarked performance. LiveWindows remains available; this fork does not replace it with
-screenshots. Strip Mode is still experimental, and real-device gesture and 120 Hz performance depend on
-the Mac and display.
-
-The downloads and Homebrew cask below are **upstream Sunlight**, not this fork. To get these changes,
-[build this fork from source](#build-from-source).
-
 <div align="center">
 
 <img src="docs/images/icon.png" width="128" height="128" alt="Sunlight's icon: a black sun on yellow">
 
 # Sunlight
 
-**A fluid macOS window manager inspired by Niri's swipe-driven navigation.**<br>
-A Sunlight fork for people moving from Niri on Linux who want a familiar way to move between windows on a Mac.
+**Every window on your Mac, on one infinite canvas.**<br>
+Zoom out to see all of it. Click a window and you're in it, for real, at 1:1.
 
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black?logo=apple)](#requirements)
 [![Apple silicon](https://img.shields.io/badge/Apple%20silicon-only-black)](#requirements)
 [![Beta](https://img.shields.io/badge/status-beta-f5c518)](#beta-heads-up)
 [![MIT licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
-[**Build this fork**](#build-from-source)
-&nbsp;·&nbsp; [Upstream downloads](#install-upstream-sunlight)
+[**Download for Mac**](https://github.com/spacefarm-digital/sunlight-releases/releases/latest/download/Sunlight.dmg)
+&nbsp;·&nbsp; [Homebrew](#install)
 &nbsp;·&nbsp; [sunlight.software](https://sunlight.software)
 &nbsp;·&nbsp; [How it works](docs/how-it-works.md)
 
@@ -66,8 +45,8 @@ Desktop all land on it. So it's still your Mac. It just has room now.
   even over a window.
 - 🪟 **Real windows, not screenshots.** With live windows on, the canvas shows the actual windows, scaled
   in place by a small add-on in the Dock. At 1:1 you can click, type and scroll in them right there.
-- 🎯 **Seamless handoff.** Click a window to enter it where it is; double-click to bring it to the centre
-  position. The Mission Control key (F3) or a four-finger tap takes you back out, and again takes you back in.
+- 🎯 **Seamless handoff.** Click a window to step into it where it is; double-click to bring it to the
+  middle. The Mission Control key (F3) or a four-finger tap takes you back out, and again takes you back in.
 - 🧲 **Neat without trying.** Windows snap to guides and a grid as you drag, resize from their edges, and
   can shove each other out of the way if you want them to (Settings › Windows).
 - ⌨️ **Move & Resize keys.** ⌃⌥ + arrows for halves, plus quarters, thirds, two-thirds, full screen and
@@ -97,7 +76,7 @@ Desktop all land on it. So it's still your Mac. It just has room now.
 |---|---|---|
 | Zoom | pinch | ⌥ or ⌘ + scroll |
 | Pan | two-finger scroll, or four-finger drag from anywhere | |
-| Go into a window | click to enter at the clicked position (double-click to centre it), or pinch in over it | ⏎ over it |
+| Go into a window | click it (double-click to centre it), or pinch in over it | ⏎ over it |
 | Use a window at 1:1 | just click, type and scroll, as on the desktop | |
 | See everything, and back in | four-finger tap | Mission Control key (F3) |
 | Show Desktop | four-finger spread (thumb and three fingers) | F11 |
@@ -105,13 +84,6 @@ Desktop all land on it. So it's still your Mac. It just has room now.
 | Picture in Picture | right-click a window › Picture in Picture | ⌃⌥P |
 | Save / restore a layout | | ⌘S / ⌘1 – ⌘9 |
 | Settings · How to use | | ⌘, · ⌘? |
-
-These are the defaults. **Settings › Shortcuts** lets you change the keys, and **Settings › Trackpad**
-lets you assign actions to window clicks and four-finger gestures, and choose how scrolling and pinching
-behave on the canvas. A single click acts immediately, even when a second click follows; primary clicks
-and scrolling over a window at 1:1 still reach that window. Both panes can restore their defaults.
-**Settings › Canvas** also has separate camera-sensitivity controls for precise scrolling and the mouse
-wheel, plus a centering-sensitivity control for how readily a released pan catches a window.
 
 Everything else lives in the **sun icon in the menu bar** (Sunlight has no Dock icon): the on/off switch,
 the minimap, your layouts, and More for the rest. **Settings › How to use** (⌘?) is the whole manual: the basics,
@@ -136,9 +108,7 @@ off. The **Set Up Sunlight** wizard walks you through it one screen at a time, R
 [LiveWindows/README.md](LiveWindows/README.md) for exactly what the add-on does and why before you
 flip anything.
 
-## Install upstream Sunlight
-
-The following DMG and Homebrew cask install the original project, **not this fork**.
+## Install
 
 **Download** the DMG and drag Sunlight to Applications:
 
@@ -183,16 +153,6 @@ on your Mac.
 
 ## Build from source
 
-Clone the fork and select the feature branch:
-
-```sh
-git clone https://github.com/MateuszJuszczyk/sunlight.git
-cd sunlight
-git switch improve-camera-navigation
-```
-
-Build and run it:
-
 ```sh
 make run
 ```
@@ -200,8 +160,6 @@ make run
 Needs macOS 15 or later and Xcode 16 or later (the command-line tools are enough). `swift test` runs the
 tests. The build signs with the first Developer ID Application or Apple Development identity in your
 keychain, or ad-hoc with neither; [INSTALL.md](INSTALL.md#building-from-source) says what each one changes.
-The fork retains upstream's Sparkle update feed. Accepting an upstream update may replace the fork's
-changes with the upstream version.
 How the canvas is drawn, the handoff, the add-on and the known limits are all in
 [docs/how-it-works.md](docs/how-it-works.md).
 
@@ -219,3 +177,7 @@ The Dock add-on and its loader in `LiveWindows/osax` are adapted from
 [yabai](https://github.com/koekeishiya/yabai)'s scripting addition (MIT, © 2019 Åsmund Vikane), by way of
 the macOS 27 fork at [LCS-Dev-Ergos/yabai](https://github.com/LCS-Dev-Ergos/yabai); see
 `LiveWindows/osax/LICENSE-yabai.txt`. Huge thanks to everyone who figured out the Dock first.
+
+You can customise keyboard shortcuts, trackpad gestures and camera sensitivity in Settings. Optional
+release-time centering, directional navigation and free four-finger steering are off by default; the
+default controls and 100% sensitivity match Sunlight's original behaviour.

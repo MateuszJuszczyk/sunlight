@@ -466,6 +466,7 @@ enum Bindings {
     /// The recognizer's copy of the gesture choices, read without touching the main actor from its frames.
     static func trackpadConfig() -> TrackpadPan.GestureConfig {
         var config = TrackpadPan.GestureConfig()
+        config.freeSteering = Settings.freePanSteering
         config.tap = command(for: .fourFingerTap) != nil
         config.spread = command(for: .spread) != nil
         config.flicks = Set(TrackpadGesture.flicks.filter { command(for: $0) != nil })

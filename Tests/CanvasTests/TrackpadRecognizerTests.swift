@@ -182,24 +182,33 @@ final class TrackpadRecognizerTests: XCTestCase {
         XCTAssertTrue(gestures(in: phases).isEmpty)
     }
 
+    func testDefaultPanKeepsOriginalAxisLock() {
+        let path = [CGPoint(x: 0.2, y: 0.3), CGPoint(x: 0.3, y: 0.3), CGPoint(x: 0.3, y: 0.4)]
+        XCTAssertTrue(travel(in: touch(path)).allSatisfy { $0.dy == 0 })
+    }
+
     func testDragCanTurnAfterStartingOnAnAxis() {
+        var config = standard
+        config.freeSteering = true
         let horizontalFirst = [CGPoint(x: 0.2, y: 0.3), CGPoint(x: 0.3, y: 0.3),
                                CGPoint(x: 0.33, y: 0.36), CGPoint(x: 0.33, y: 0.4)]
-        let horizontalTravel = travel(in: touch(horizontalFirst))
+        let horizontalTravel = travel(in: touch(horizontalFirst, config: config))
         XCTAssertTrue(horizontalTravel.contains { $0.dx > 0 && $0.dy < 0 })
         XCTAssertTrue(horizontalTravel.contains { $0.dx == 0 && $0.dy < 0 })
 
         let verticalFirst = [CGPoint(x: 0.2, y: 0.2), CGPoint(x: 0.2, y: 0.3),
                              CGPoint(x: 0.26, y: 0.33), CGPoint(x: 0.3, y: 0.33)]
-        let verticalTravel = travel(in: touch(verticalFirst))
+        let verticalTravel = travel(in: touch(verticalFirst, config: config))
         XCTAssertTrue(verticalTravel.contains { $0.dx > 0 && $0.dy < 0 })
         XCTAssertTrue(verticalTravel.contains { $0.dx > 0 && $0.dy == 0 })
     }
 
     func testSlowTurnReleasesAxisLockWithoutLosingTravel() {
+        var config = standard
+        config.freeSteering = true
         let horizontal = [CGPoint(x: 0.2, y: 0.3), CGPoint(x: 0.3, y: 0.3)]
         let slowTurn = (1...100).map { CGPoint(x: 0.3, y: 0.3 + CGFloat($0) * 0.001) }
-        let vertical = travel(in: touch(horizontal + slowTurn)).reduce(CGFloat.zero) { $0 + $1.dy }
+        let vertical = travel(in: touch(horizontal + slowTurn, config: config)).reduce(CGFloat.zero) { $0 + $1.dy }
         XCTAssertEqual(vertical, -0.1, accuracy: 0.001)
     }
 

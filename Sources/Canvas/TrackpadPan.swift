@@ -41,6 +41,7 @@ final class TrackpadPan: @unchecked Sendable {
             case off
         }
 
+        var freeSteering = false
         var tap = false
         var spread = false
         var flicks: Set<TrackpadGesture> = []
@@ -406,11 +407,13 @@ struct TrackpadRecognizer {
         // Accumulate intentional cross-axis movement across frames: slow turns must work too.
         switch lock {
         case .level:
+            guard config.freeSteering else { travel.dy = 0; break }
             if abs(travel.dy) >= abs(travel.dx) * 0.5 { crossAxisTravel += travel.dy }
             else { crossAxisTravel = 0 }
             if abs(crossAxisTravel) >= 0.015 { lock = nil; travel.dy = crossAxisTravel; crossAxisTravel = 0 }
             else { travel.dy = 0 }
         case .plumb:
+            guard config.freeSteering else { travel.dx = 0; break }
             if abs(travel.dx) >= abs(travel.dy) * 0.5 { crossAxisTravel += travel.dx }
             else { crossAxisTravel = 0 }
             if abs(crossAxisTravel) >= 0.015 { lock = nil; travel.dx = crossAxisTravel; crossAxisTravel = 0 }

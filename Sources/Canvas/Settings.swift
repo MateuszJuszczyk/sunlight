@@ -306,7 +306,7 @@ enum Settings {
     }
 
     static var cameraPanSensitivity: CameraPanSensitivity {
-        get { defaults.string(forKey: cameraPanSensitivityKey).flatMap(CameraPanSensitivity.init(rawValue:)) ?? .high }
+        get { defaults.string(forKey: cameraPanSensitivityKey).flatMap(CameraPanSensitivity.init(rawValue:)) ?? .normal }
         set { defaults.set(newValue.rawValue, forKey: cameraPanSensitivityKey) }
     }
 
@@ -337,6 +337,20 @@ enum Settings {
         defaults.removeObject(forKey: cameraPanSensitivityKey)
         defaults.removeObject(forKey: "MouseCameraSensitivity")
         defaults.removeObject(forKey: "WindowCenteringSensitivity")
+    }
+
+    /// Opt in to the alternative release-time snap and free steering; upstream behavior is the default.
+    static var snapOnPanRelease: Bool {
+        get { defaults.bool(forKey: "SnapOnPanRelease") }
+        set { defaults.set(newValue, forKey: "SnapOnPanRelease") }
+    }
+
+    static var freePanSteering: Bool {
+        get { defaults.bool(forKey: "FreePanSteering") }
+        set {
+            defaults.set(newValue, forKey: "FreePanSteering")
+            NotificationCenter.default.post(name: Bindings.didChange, object: nil)
+        }
     }
 
     static var autoCenterAfterFourFingerPan: Bool {
@@ -1674,6 +1688,12 @@ private struct MotionPane: View {
             Section {
                 sensitivitySlider("Trackpad camera sensitivity", value: model.bind({ Settings.trackpadCameraSensitivity }, { Settings.trackpadCameraSensitivity = $0 }), range: 0.25...3, detail: "Controls trackpad navigation and precise scrolling.")
                 sensitivitySlider("Mouse camera sensitivity", value: model.bind({ Settings.mouseCameraSensitivity }, { Settings.mouseCameraSensitivity = $0 }), range: 0.25...3, detail: "Controls mouse navigation.")
+                Toggle(isOn: model.bind({ Settings.snapOnPanRelease }, { Settings.snapOnPanRelease = $0 })) {
+                    RowLabel(title: "Snap when fingers lift", subtitle: "Check for a window before the pan glides to a stop.")
+                }
+                Toggle(isOn: model.bind({ Settings.freePanSteering }, { Settings.freePanSteering = $0 })) {
+                    RowLabel(title: "Free four-finger steering", subtitle: "Change direction during a straight four-finger pan.")
+                }
                 Toggle(isOn: model.bind({ Settings.autoCenterAfterFourFingerPan }, { Settings.autoCenterAfterFourFingerPan = $0 })) {
                     RowLabel(title: "Niri-like navigation", subtitle: "On four-finger release, enter the nearest window in the swipe direction.")
                 }

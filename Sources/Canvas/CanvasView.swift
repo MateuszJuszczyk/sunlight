@@ -1132,7 +1132,8 @@ final class CanvasView: NSView {
         panTravel = .zero
         panVelocity = Magnetism.Velocity()
         fingersLifted()
-        if settleWhenStill, settleAfterFourFingerPan {
+        if settleWhenStill, settleAfterFourFingerPan,
+           Settings.snapOnPanRelease || Settings.autoCenterAfterFourFingerPan {
             flushInput()
             let snapped: Bool
             if Settings.autoCenterAfterFourFingerPan, let startCamera {
@@ -3067,7 +3068,7 @@ final class CanvasView: NSView {
         }
         if event.phase == .ended || event.phase == .cancelled {
             scrollHeld = false
-            if event.phase == .ended, scrollGestureIsPrecise, !modifiedZoom, Settings.canvasScrollBehavior == .pan {
+            if event.phase == .ended, Settings.snapOnPanRelease, scrollGestureIsPrecise, !modifiedZoom, Settings.canvasScrollBehavior == .pan {
                 flushInput()
                 discardScrollMomentum = onPanRelease?(scrollPanStartCamera) == true
                 scrollPanStartCamera = nil

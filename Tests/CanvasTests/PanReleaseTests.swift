@@ -4,8 +4,25 @@ import XCTest
 
 @MainActor
 final class PanReleaseTests: XCTestCase {
+    func testDefaultPanDoesNotSnapAtFingerRelease() {
+        let defaults = UserDefaults.standard
+        let keys = ["SnapOnPanRelease", "autoCenterAfterFourFingerPan"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, saved) { if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) } } }
+        keys.forEach { defaults.removeObject(forKey: $0) }
+        let view = CanvasView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800))
+        var checks = 0
+        view.onPanRelease = { _ in checks += 1; return true }
+        view.trackpadPan(by: CGVector(dx: 0.1, dy: 0))
+        view.trackpadPanEnded()
+        XCTAssertEqual(checks, 0)
+    }
+
     func testFourFingerPanChecksForSnapAtReleaseWithDirectionalSnapOff() {
         let defaults = UserDefaults.standard
+        let savedSnap = defaults.object(forKey: "SnapOnPanRelease")
+        defaults.set(true, forKey: "SnapOnPanRelease")
+        defer { if let savedSnap { defaults.set(savedSnap, forKey: "SnapOnPanRelease") } else { defaults.removeObject(forKey: "SnapOnPanRelease") } }
         let saved = defaults.object(forKey: "autoCenterAfterFourFingerPan")
         defer {
             if let saved { defaults.set(saved, forKey: "autoCenterAfterFourFingerPan") }
@@ -31,6 +48,9 @@ final class PanReleaseTests: XCTestCase {
 
     func testFourFingerPanUsesDirectionalSnapAtReleaseWhenEnabled() {
         let defaults = UserDefaults.standard
+        let savedSnap = defaults.object(forKey: "SnapOnPanRelease")
+        defaults.set(true, forKey: "SnapOnPanRelease")
+        defer { if let savedSnap { defaults.set(savedSnap, forKey: "SnapOnPanRelease") } else { defaults.removeObject(forKey: "SnapOnPanRelease") } }
         let saved = defaults.object(forKey: "autoCenterAfterFourFingerPan")
         defer {
             if let saved { defaults.set(saved, forKey: "autoCenterAfterFourFingerPan") }
@@ -48,6 +68,9 @@ final class PanReleaseTests: XCTestCase {
 
     func testFourFingerPanCanDeclineSnapAtRelease() {
         let defaults = UserDefaults.standard
+        let savedSnap = defaults.object(forKey: "SnapOnPanRelease")
+        defaults.set(true, forKey: "SnapOnPanRelease")
+        defer { if let savedSnap { defaults.set(savedSnap, forKey: "SnapOnPanRelease") } else { defaults.removeObject(forKey: "SnapOnPanRelease") } }
         let saved = defaults.object(forKey: "autoCenterAfterFourFingerPan")
         defer {
             if let saved { defaults.set(saved, forKey: "autoCenterAfterFourFingerPan") }
@@ -68,7 +91,7 @@ final class PanReleaseTests: XCTestCase {
     func testPanBufferedWhileReturningToCanvasKeepsGlidingAfterReleaseInGap() throws {
         try XCTSkipIf(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, "Coasting is disabled by Reduce Motion")
         let defaults = UserDefaults.standard
-        let keys = ["autoCenterAfterFourFingerPan", "CanvasPanInertia", "TrackpadCameraSensitivity"]
+        let keys = ["autoCenterAfterFourFingerPan", "CanvasPanInertia", "TrackpadCameraSensitivity", "SnapOnPanRelease"]
         let saved = keys.map { defaults.object(forKey: $0) }
         defer {
             for (key, value) in zip(keys, saved) {
@@ -76,6 +99,7 @@ final class PanReleaseTests: XCTestCase {
             }
         }
         Settings.autoCenterAfterFourFingerPan = false
+        Settings.snapOnPanRelease = true
         Settings.panInertia = true
         Settings.trackpadCameraSensitivity = 1
         var buffered = PendingTrackpadPan(viewWidth: 1000, sensitivity: 1, at: 1)

@@ -38,7 +38,7 @@ final class SettingsTests: XCTestCase {
         await MainActor.run {
             let defaults = UserDefaults.standard
             let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled", "CanvasSingleClickCommand", "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand", "CanvasWindowDragAction", "TrackpadCameraSensitivity", "MouseCameraSensitivity", "WindowCenteringSensitivity",
-                        "windowSnapStrength", "cameraPanSensitivity"]
+                        "windowSnapStrength", "cameraPanSensitivity", "SnapOnPanRelease", "FreePanSteering"]
             let saved = keys.map { defaults.object(forKey: $0) }
             defer {
                 for (key, value) in zip(keys, saved) {
@@ -47,6 +47,8 @@ final class SettingsTests: XCTestCase {
                 }
             }
             keys.forEach { defaults.removeObject(forKey: $0) }
+            XCTAssertFalse(Settings.snapOnPanRelease)
+            XCTAssertFalse(Settings.freePanSteering)
             XCTAssertFalse(Settings.autoCenterAfterFourFingerPan)
             XCTAssertEqual(Settings.singleClickBehavior, .enterAtClickPosition)
             XCTAssertEqual(Settings.doubleClickBehavior, .centerWindow)
@@ -86,8 +88,8 @@ final class SettingsTests: XCTestCase {
             Settings.singleClickBehavior = .centerWindow
             XCTAssertEqual(Settings.doubleClickBehavior, .none)
             XCTAssertEqual(Settings.windowSnapStrength, .normal)
-            XCTAssertEqual(Settings.cameraPanSensitivity, .high)
-            XCTAssertEqual(Settings.cameraPanSensitivity.multiplier, 1.35)
+            XCTAssertEqual(Settings.cameraPanSensitivity, .normal)
+            XCTAssertEqual(Settings.cameraPanSensitivity.multiplier, 1)
             XCTAssertEqual(Settings.trackpadCameraSensitivity, 1, accuracy: 0.0001)
             XCTAssertEqual(Settings.mouseCameraSensitivity, 1)
             XCTAssertEqual(Settings.windowCenteringSensitivity, 1)
@@ -132,7 +134,7 @@ final class SettingsTests: XCTestCase {
             defaults.set("invalid", forKey: "cameraPanSensitivity")
             XCTAssertEqual(Settings.singleClickBehavior, .enterAtClickPosition)
             XCTAssertEqual(Settings.windowSnapStrength, .normal)
-            XCTAssertEqual(Settings.cameraPanSensitivity, .high)
+            XCTAssertEqual(Settings.cameraPanSensitivity, .normal)
         }
     }
 }
