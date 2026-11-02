@@ -38,7 +38,7 @@ final class SettingsTests: XCTestCase {
         await MainActor.run {
             let defaults = UserDefaults.standard
             let keys = ["autoCenterAfterFourFingerPan", "singleClickBehavior", "doubleClickBehavior", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled", "CanvasSingleClickCommand", "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand", "CanvasWindowDragAction", "TrackpadCameraSensitivity", "MouseCameraSensitivity", "WindowCenteringSensitivity",
-                        "windowSnapStrength", "cameraPanSensitivity", "SnapOnPanRelease", "FreePanSteering"]
+                        "windowSnapStrength", "cameraPanSensitivity", "SnapOnPanRelease", "FreePanSteering", "CanvasEnterOnZoom"]
             let saved = keys.map { defaults.object(forKey: $0) }
             defer {
                 for (key, value) in zip(keys, saved) {
@@ -64,6 +64,7 @@ final class SettingsTests: XCTestCase {
             XCTAssertTrue(Settings.scrollZoomModifier.matches([.command]))
             XCTAssertFalse(Settings.scrollZoomModifier.matches([.shift]))
             XCTAssertTrue(Settings.canvasPinchEnabled)
+            XCTAssertTrue(Settings.enterOnZoom)
             Settings.canvasScrollBehavior = .zoom
             Settings.scrollZoomModifier = .shift
             XCTAssertTrue(Settings.scrollZoomModifier.matches([.shift]))

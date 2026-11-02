@@ -3062,6 +3062,7 @@ final class CanvasView: NSView {
         beginInput()
         let gain = event.hasPreciseScrollingDeltas ? Settings.trackpadCameraSensitivity : Settings.mouseCameraSensitivity
         if modifiedZoom || Settings.canvasScrollBehavior == .zoom {
+            if !Settings.enterOnZoom { settleWhenStill = false }
             pending.addZoom(by: exp(-event.scrollingDeltaY * 0.01 * gain), around: screenPoint)
         } else {
             pending.addPan(CGVector(dx: event.scrollingDeltaX * gain, dy: event.scrollingDeltaY * gain))
@@ -3139,6 +3140,7 @@ final class CanvasView: NSView {
     private func pinch(magnification: CGFloat, phase: NSEvent.Phase, timestamp: TimeInterval, at screenPoint: CGPoint) {
         guard Settings.canvasPinchEnabled else { return }
         beginInput()
+        if !Settings.enterOnZoom { settleWhenStill = false }
         if phase == .began {
             pinchLog = 0
             pinchVelocity = Motion.ScalarVelocity()
@@ -3156,10 +3158,10 @@ final class CanvasView: NSView {
         pinchLog = 0
         pinchVelocity = Motion.ScalarVelocity()
         // Ended nearly on a full screen window: onto it and in, centred, rather than in place.
-        if onSettle?() == true { return }
+        if Settings.enterOnZoom, onSettle?() == true { return }
         // "Zoom all the way in" is the handoff gesture, finishing the zoom where the fingers are.
         // A widget is already as real as it gets; the minimap is neither.
-        if camera.zoom >= CanvasView.handoffZoom, isCovered?(screenPoint) != true {
+        if Settings.enterOnZoom, camera.zoom >= CanvasView.handoffZoom, isCovered?(screenPoint) != true {
             let worldPoint = camera.toWorld(screenPoint)
             if let p = proxy(at: worldPoint), p.kind == .window {
                 onEnter?(p, screenPoint)
@@ -3170,7 +3172,7 @@ final class CanvasView: NSView {
         // the fingers didn't reach. Nothing with zoom inertia off in Settings, or under Reduce Motion.
         guard Settings.zoomInertia, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
               let tail = Motion.ZoomCoast(velocity: v, anchor: screenPoint, at: timestamp),
-              camera.zoom >= CanvasView.handoffZoom || tail.end(from: camera.zoom, at: timestamp) < CanvasView.handoffZoom
+              !Settings.enterOnZoom || camera.zoom >= CanvasView.handoffZoom || tail.end(from: camera.zoom, at: timestamp) < CanvasView.handoffZoom
         else { return }
         zoomCoast = tail
         startDisplayLink()

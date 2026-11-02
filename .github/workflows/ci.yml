@@ -3,6 +3,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -39,3 +40,13 @@ jobs:
 
       - name: Build live windows
         run: scripts/build-live-windows.sh
+
+      - name: Package ad-hoc app
+        run: |
+          make app SIGN=-
+          ditto -c -k --keepParent build/Sunlight.app build/Sunlight-adhoc.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sunlight-macOS-adhoc
+          path: build/Sunlight-adhoc.zip

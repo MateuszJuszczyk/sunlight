@@ -675,6 +675,10 @@ struct TrackpadPane: View {
                     get: { Settings.canvasPinchEnabled },
                     set: { Settings.canvasPinchEnabled = $0; revision += 1 }
                 ))
+                Toggle("Automatically enter windows when zooming", isOn: Binding(
+                    get: { Settings.enterOnZoom },
+                    set: { Settings.enterOnZoom = $0; revision += 1 }
+                ))
             } header: {
                 SectionHeader(title: "Zoom and pan",
                               detail: "These apply to the canvas. Scroll over a window at 1:1 still reaches that window unless the zoom modifier is held.")

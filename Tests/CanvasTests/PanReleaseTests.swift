@@ -4,6 +4,22 @@ import XCTest
 
 @MainActor
 final class PanReleaseTests: XCTestCase {
+    func testPinchWithoutAutomaticEntryDoesNotSettleIntoAWindow() {
+        let defaults = UserDefaults.standard
+        let key = "CanvasEnterOnZoom"
+        let saved = defaults.object(forKey: key)
+        defer { if let saved { defaults.set(saved, forKey: key) } else { defaults.removeObject(forKey: key) } }
+        defaults.set(false, forKey: key)
+        let view = CanvasView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800))
+        view.set(camera: Camera(origin: .zero, zoom: 0.95))
+        var entries = 0
+        view.onSettle = { entries += 1; return true }
+        view.externalPinch(magnification: 0, phase: .began, timestamp: 1, at: CGPoint(x: 500, y: 400))
+        view.externalPinch(magnification: 0, phase: .ended, timestamp: 1.1, at: CGPoint(x: 500, y: 400))
+        XCTAssertEqual(entries, 0)
+        XCTAssertEqual(view.camera.zoom, 0.95, accuracy: 0.001)
+    }
+
     func testDefaultPanDoesNotSnapAtFingerRelease() {
         let defaults = UserDefaults.standard
         let keys = ["SnapOnPanRelease", "autoCenterAfterFourFingerPan"]

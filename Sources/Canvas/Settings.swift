@@ -516,9 +516,15 @@ enum Settings {
         set { defaults.set(newValue, forKey: "CanvasPinchEnabled") }
     }
 
+    /// Whether zooming into a window automatically enters it, as in Sunlight 0.2.
+    static var enterOnZoom: Bool {
+        get { defaults.object(forKey: "CanvasEnterOnZoom") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "CanvasEnterOnZoom") }
+    }
+
     static func resetTrackpadControls() {
         for key in [singleClickBehaviorKey, doubleClickBehaviorKey, "CanvasSingleClickCommand",
-                    "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand", "CanvasWindowDragAction", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled"] {
+                    "CanvasDoubleClickCommand", "CanvasSecondaryClickCommand", "CanvasWindowDragAction", "CanvasScrollBehavior", "CanvasScrollZoomModifier", "CanvasPinchEnabled", "CanvasEnterOnZoom"] {
             defaults.removeObject(forKey: key)
         }
         Bindings.resetGestures()
