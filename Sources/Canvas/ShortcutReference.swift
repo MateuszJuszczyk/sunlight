@@ -56,12 +56,12 @@ enum ShortcutReference {
             ]
         }
         rows.append(Row(title: "Move & Resize a window", keys: TileMenu.tileKeysSummary))
-        rows.append(Row(title: "Picture in Picture", keys: "⌃⌥P · right-click"))
+        rows.append(Row(title: "Picture in Picture", keys: (Bindings.shortcut(for: .pictureInPicture)?.label ?? "—") + " · right-click"))
         if strip {
             let key = Bindings.shortcut(for: .toggleStrip)?.label ?? "—"
             rows.append(Row(title: "Strip mode on or off", keys: key + " · then the arrows step"))
         }
-        if tellSunlight { rows.append(Row(title: "Tell Sunlight", keys: "⌃⌥Space")) }
+        if tellSunlight { rows.append(Row(title: "Tell Sunlight", keys: Bindings.shortcut(for: .tellSunlight)?.label ?? "—")) }
         let desktop = [Bindings.shortcut(for: .showDesktop)?.label, gestureLine(for: .showDesktop)]
             .compactMap { $0 }.joined(separator: " · ")
         rows += [

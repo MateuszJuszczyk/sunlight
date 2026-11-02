@@ -131,12 +131,6 @@ final class KeyTap: @unchecked Sendable {
     /// Off: every key passes, at once, whether or not the tap's thread is up yet. The tap itself is
     /// told to stop listening too, so the keys don't even round-trip through this process meanwhile.
     func stop() {
-        state.withLock { $0 = State() }
-        guard let runLoop else { return }
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) { [self] in
-            if let port { CGEvent.tapEnable(tap: port, enable: false) }
-        }
-        CFRunLoopWakeUp(runLoop)
         state.withLock {
             let desktop = $0.showDesktopOnF11
             let toggle = $0.toggleCanvasOnMissionControl
@@ -144,6 +138,11 @@ final class KeyTap: @unchecked Sendable {
             $0.showDesktopOnF11 = desktop
             $0.toggleCanvasOnMissionControl = toggle
         }
+        guard let runLoop else { return }
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) { [self] in
+            if let port { CGEvent.tapEnable(tap: port, enable: false) }
+        }
+        CFRunLoopWakeUp(runLoop)
     }
 
     private var isEnabled: Bool { state.withLock { $0.enabled } }

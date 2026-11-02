@@ -2606,7 +2606,13 @@ final class CanvasView: NSView {
         if event.clickCount >= 2, let p = entering {
             dragging = nil
             // Using windows at any zoom with the clicks swapped, the double-click focuses it where it was.
-            if scaledWindowsInUse, Settings.scaledClickZooms { onClickFocus?(p) } else { onHandoff?(p) }
+            if let first = previousClick {
+                performWindowClick(p, at: first.point, offset: first.offset, double: true)
+            } else if scaledWindowsInUse, Settings.scaledClickZooms {
+                onClickFocus?(p)
+            } else {
+                performWindowClick(p, at: screenPoint, offset: .zero, double: true)
+            }
             return
         }
         let ground = floorHit(at: worldPoint)
@@ -2687,7 +2693,8 @@ final class CanvasView: NSView {
             // click usually lands while the first is on its way in, above).
             if event.clickCount >= 2, p.kind == .window {
                 dragging = nil
-                if scaledWindowsInUse, Settings.scaledClickZooms { onClickFocus?(p) } else { onHandoff?(p) }
+                let offset = CGPoint(x: worldPoint.x - p.worldRect.minX, y: worldPoint.y - p.worldRect.minY)
+                performWindowClick(p, at: screenPoint, offset: offset, double: true)
                 return
             }
             // The press brings it to the front, with its group; a drag moves it.

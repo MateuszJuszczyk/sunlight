@@ -148,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         canvas.onSetUp = { [weak self] in self?.setupController().show(startingLive: true) }
         canvas.onCustomiseBackground = { [weak self] in self?.showSettings(tab: .background) }
         canvas.onHowToUse = { [weak self] in self?.showInstructions(chapter: nil) }
+        canvas.onTellSunlight = { [weak self] in self?.toggleAgentBar() }
         // A display more or fewer: ⌃⌥⇧ → ← are Sunlight's only while there's somewhere to move to.
         canvas.onDisplaysChanged = { [weak self] in self?.experimentalFeaturesChanged() }
         menuBar = makeMenuBar(for: canvas)
@@ -269,16 +270,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard command.isAvailable(arranging: Settings.arranging,
                                       strip: Settings.stripModeEnabled,
                                       displays: canvas.canvases.count > 1) else { return nil }
+            guard command != .tellSunlight || Settings.tellSunlight else { return nil }
             guard let shortcut = Bindings.shortcut(for: command) else { return nil }
             // The dedicated Mission Control key is delivered through the takeover event tap.
             if command == .toggleCanvas, shortcut == command.defaultShortcut { return nil }
-            return Hotkey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers) { [weak canvas] in
-                canvas?.perform(command)
+            return Hotkey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers) { [weak self, weak canvas] in
+                if command == .tellSunlight { self?.toggleAgentBar() } else { canvas?.perform(command) }
             }
-        }
-        hotkeys.append(Hotkey(keyCode: UInt32(TileMenu.pipKeyCode), modifiers: TileMenu.carbonModifiers) { [weak canvas] in canvas?.togglePip() })
-        if Settings.tellSunlight {
-            hotkeys.append(Hotkey(keyCode: UInt32(kVK_Space), modifiers: TileMenu.carbonModifiers) { [weak self] in self?.toggleAgentBar() })
         }
         updateKeyTap()
     }
@@ -459,6 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let action = item.action
             let command: Command?
             switch action {
+            case #selector(togglePip): command = .pictureInPicture
             case #selector(showSettings(_:)): command = .settings
             case #selector(showInstructions(_:)): command = .instructions
             case #selector(saveLayout): command = .saveLayout

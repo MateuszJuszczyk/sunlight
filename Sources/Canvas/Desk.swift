@@ -91,6 +91,7 @@ final class Desk {
 
     var onSetUp: (() -> Void)? { didSet { canvases.forEach { $0.onSetUp = onSetUp } } }
     /// ⌘? anywhere while taken over: Settings › How to use.
+    var onTellSunlight: (() -> Void)?
     var onHowToUse: (() -> Void)? { didSet { canvases.forEach { $0.onHowToUse = onHowToUse } } }
     /// A display came or went (after `reviewDisplays`).
     var onDisplaysChanged: (() -> Void)?
@@ -238,6 +239,8 @@ final class Desk {
         case .nextDisplay: target.moveToDisplay(step: 1)
         case .previousDisplay: target.moveToDisplay(step: -1)
         case .toggleStrip: target.toggleStripMode()
+        case .pictureInPicture: target.togglePipCommand()
+        case .tellSunlight: onTellSunlight?()
         case .showDesktop: target.showDesktop()
         case .seeAll: target.seeAll()
         case .toggleCanvas: toggle()

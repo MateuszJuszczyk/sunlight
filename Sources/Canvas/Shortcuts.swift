@@ -98,7 +98,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
     // Displays.
     case nextDisplay, previousDisplay
     // The canvas itself.
-    case toggleStrip
+    case toggleStrip, pictureInPicture, tellSunlight
     case showDesktop
     case seeAll
     case toggleCanvas
@@ -138,7 +138,7 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
             return .arrange
         case .nextDisplay, .previousDisplay:
             return .displays
-        case .toggleStrip, .showDesktop, .seeAll, .toggleCanvas, .panCanvas, .enterWindow, .flipPolarity:
+        case .toggleStrip, .pictureInPicture, .tellSunlight, .showDesktop, .seeAll, .toggleCanvas, .panCanvas, .enterWindow, .flipPolarity:
             return .canvas
         case .saveLayout, .settings, .instructions, .quit, .closeWindow, .undo, .redo,
              .restoreLayout1, .restoreLayout2, .restoreLayout3, .restoreLayout4, .restoreLayout5,
@@ -170,6 +170,8 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .nextDisplay: return "Move to Next Display"
         case .previousDisplay: return "Move to Previous Display"
         case .toggleStrip: return "Strip Mode"
+        case .pictureInPicture: return "Picture in Picture"
+        case .tellSunlight: return "Tell Sunlight"
         case .showDesktop: return "Show Desktop"
         case .seeAll: return "See Everything"
         case .toggleCanvas: return "Canvas ↔ Last Window"
@@ -238,6 +240,8 @@ enum Command: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .nextDisplay: return key(kVK_RightArrow, arrow(NSRightArrowFunctionKey), display)
         case .previousDisplay: return key(kVK_LeftArrow, arrow(NSLeftArrowFunctionKey), display)
         case .toggleStrip: return key(kVK_ANSI_S, "s", tile)
+        case .pictureInPicture: return key(kVK_ANSI_P, "p", tile)
+        case .tellSunlight: return key(kVK_Space, " ", tile)
         // F11 is the Mac's own Show Desktop; while takeover runs, the key tap forwards it here.
         case .showDesktop: return key(kVK_F11, arrow(NSF11FunctionKey), 0)
         case .toggleCanvas: return key(160, arrow(NSF3FunctionKey), 0)
