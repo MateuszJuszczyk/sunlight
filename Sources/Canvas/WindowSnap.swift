@@ -32,7 +32,7 @@ enum WindowSnap {
 
     /// Keep the author's reach at 100%, but make each slider step have a stronger effect.
     private static func sensitivityGain(_ sensitivity: CGFloat) -> CGFloat {
-        let bounded = min(2, max(0.5, sensitivity))
+        let bounded = min(4, max(0.5, sensitivity))
         return bounded * bounded
     }
 

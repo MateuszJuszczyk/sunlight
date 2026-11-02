@@ -84,6 +84,9 @@ final class WindowSnapTests: XCTestCase {
         let displaced = Camera(origin: CGPoint(x: 70, y: 0), zoom: 1)
         XCTAssertNil(WindowSnap.target(camera: displaced, viewSize: size, visible: area, windows: [full], sensitivity: 1))
         XCTAssertNotNil(WindowSnap.target(camera: displaced, viewSize: size, visible: area, windows: [full], sensitivity: 1.25))
+        let far = Camera(origin: CGPoint(x: 500, y: 0), zoom: 1)
+        XCTAssertNil(WindowSnap.target(camera: far, viewSize: size, visible: area, windows: [full], sensitivity: 2))
+        XCTAssertNotNil(WindowSnap.target(camera: far, viewSize: size, visible: area, windows: [full], sensitivity: 4))
     }
 
     func testStrongDoesNotCaptureInvisibleWindowAndCanSnapFromOverview() {

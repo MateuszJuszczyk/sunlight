@@ -102,7 +102,7 @@ final class SettingsTests: XCTestCase {
             XCTAssertEqual(Settings.mouseCameraSensitivity, 0.7)
             XCTAssertEqual(Settings.windowCenteringSensitivity, 1.6)
             Settings.windowCenteringSensitivity = 10
-            XCTAssertEqual(Settings.windowCenteringSensitivity, 2)
+            XCTAssertEqual(Settings.windowCenteringSensitivity, 4)
             Settings.resetCameraSensitivities()
             XCTAssertEqual(Settings.trackpadCameraSensitivity, 1, accuracy: 0.0001)
             XCTAssertEqual(Settings.mouseCameraSensitivity, 1)

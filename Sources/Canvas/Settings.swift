@@ -328,8 +328,8 @@ enum Settings {
     }
 
     static var windowCenteringSensitivity: Double {
-        get { sensitivity("WindowCenteringSensitivity", default: 1, range: 0.5...2) }
-        set { defaults.set(min(2, max(0.5, newValue)), forKey: "WindowCenteringSensitivity") }
+        get { sensitivity("WindowCenteringSensitivity", default: 1, range: 0.5...4) }
+        set { defaults.set(min(4, max(0.5, newValue)), forKey: "WindowCenteringSensitivity") }
     }
 
     static func resetCameraSensitivities() {
@@ -1418,7 +1418,7 @@ private struct CanvasPane: View {
                     ForEach(Settings.WindowSnapStrength.allCases, id: \.self) { Text($0.title) }
                 }
                 .disabled(!Settings.snapToWindows)
-                sensitivitySlider("Window centering sensitivity", value: model.bind({ Settings.windowCenteringSensitivity }, { Settings.windowCenteringSensitivity = $0 }), range: 0.5...2,
+                sensitivitySlider("Window centering sensitivity", value: model.bind({ Settings.windowCenteringSensitivity }, { Settings.windowCenteringSensitivity = $0 }), range: 0.5...4,
                                   detail: "Above 100%, catches smaller windows and reaches farther. Directional snap also needs less four-finger travel.")
                     .disabled(!Settings.snapToWindows)
                 Button("Restore Camera Sensitivity Defaults") {
