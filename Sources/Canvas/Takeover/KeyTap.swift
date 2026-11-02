@@ -47,6 +47,7 @@ final class KeyTap: @unchecked Sendable {
         var showDesktopOnF11 = true
         var toggleCanvasOnMissionControl = true
         var howToUseOnDefault = true
+        var recordingShortcut = false
         /// A full-screen app's Space is in front: ⌃← goes back to the canvas's Desktop, as on the Mac.
         var inFullScreenSpace = false
         /// When the Mission Control key went down (the event's timestamp, ns), until it's let go.
@@ -174,6 +175,10 @@ final class KeyTap: @unchecked Sendable {
 
     func update(howToUseOnDefault: Bool) {
         state.withLock { $0.howToUseOnDefault = howToUseOnDefault }
+    }
+
+    func update(recordingShortcut: Bool) {
+        state.withLock { $0.recordingShortcut = recordingShortcut }
     }
 
     /// Whether a full-screen app's Space is in front (`SpacesWatcher`).
@@ -317,6 +322,7 @@ final class KeyTap: @unchecked Sendable {
     /// `autorepeat`: the key is held and this is the system repeating it. `timestamp`: the event's, in ns.
     static func action(keyCode: Int64, flags: CGEventFlags, state: inout State, character: String? = nil, symbol: String? = nil,
                        autorepeat: Bool = false, timestamp: UInt64 = 0) -> Action {
+        guard !state.recordingShortcut else { return .pass }
         let command = flags.contains(.maskCommand)
         let control = flags.contains(.maskControl)
         let option = flags.contains(.maskAlternate)

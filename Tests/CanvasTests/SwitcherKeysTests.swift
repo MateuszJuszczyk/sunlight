@@ -11,6 +11,13 @@ final class SwitcherKeysTests: XCTestCase {
         return KeyTap.action(keyCode: key, flags: flags, state: &state)
     }
 
+    func testRecordingAllowsKeysNormallyTakenByTheTap() {
+        var state = KeyTap.State()
+        state.recordingShortcut = true
+        XCTAssertEqual(KeyTap.action(keyCode: left, flags: .maskControl, state: &state), .pass)
+        XCTAssertEqual(KeyTap.action(keyCode: tab, flags: .maskCommand, state: &state), .pass)
+    }
+
     func testCommandTabOpensThenSteps() {
         var state = KeyTap.State()
         XCTAssertEqual(KeyTap.action(keyCode: tab, flags: .maskCommand, state: &state), .send(.appSwitchBegin(reverse: false)))

@@ -196,6 +196,13 @@ final class TrackpadRecognizerTests: XCTestCase {
         XCTAssertTrue(verticalTravel.contains { $0.dx > 0 && $0.dy == 0 })
     }
 
+    func testSlowTurnReleasesAxisLockWithoutLosingTravel() {
+        let horizontal = [CGPoint(x: 0.2, y: 0.3), CGPoint(x: 0.3, y: 0.3)]
+        let slowTurn = (1...100).map { CGPoint(x: 0.3, y: 0.3 + CGFloat($0) * 0.001) }
+        let vertical = travel(in: touch(horizontal + slowTurn)).reduce(CGFloat.zero) { $0 + $1.dy }
+        XCTAssertEqual(vertical, -0.1, accuracy: 0.001)
+    }
+
     func testDiagonalDragPansFreely() {
         let phases = touch(line(from: CGPoint(x: 0.2, y: 0.2), to: CGPoint(x: 0.5, y: 0.5)))
         XCTAssertEqual(phases.first, .began)

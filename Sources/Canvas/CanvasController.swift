@@ -1510,11 +1510,11 @@ final class CanvasController {
 
     /// A four-finger gesture bound to something else fired mid-drag: the pan stops where it is, without
     /// coasting, and the gesture's command goes ahead.
-    func cancelTrackpadPan() {
+    func cancelTrackpadPan(preserveOrigin: Bool = false) {
         if NSApp.isActive && activeProxy == nil && pendingPan == nil { view.trackpadPanCancelled() }
         pendingPan = nil
         pendingPanEnded = false
-        panBroughtCanvas = false
+        if !preserveOrigin { panBroughtCanvas = false }
     }
 
     /// See Everything, from the four-finger tap or a flick (or the Mission Control key): from a window,

@@ -73,8 +73,15 @@ struct ShortcutRecorder: View {
             default:
                 break
             }
-            guard let shortcut = Shortcut(event: event, allowUnmodified: command.isCanvasLocal) else {
+            let isDefaultKey = command.defaultShortcut?.keyCode == UInt32(event.keyCode)
+                && command.defaultShortcut?.modifiers == 0
+            guard let shortcut = Shortcut(event: event, allowUnmodified: command.isCanvasLocal || isDefaultKey) else {
                 error = "Add ⌃, ⌥ or ⌘ to the key."
+                NSSound.beep()
+                return
+            }
+            if shortcut.isReservedByKeyTap {
+                error = "Reserved by Sunlight or macOS."
                 NSSound.beep()
                 return
             }

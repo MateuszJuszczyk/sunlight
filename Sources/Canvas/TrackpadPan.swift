@@ -291,6 +291,7 @@ struct TrackpadRecognizer {
     var last: CGPoint?
     /// The initial axis, until the user deliberately steers away from it; nil for free movement.
     var lock: Lock?
+    private var crossAxisTravel: CGFloat = 0
     /// Settings › Trackpad: which four-finger gestures have something to do.
     var config = TrackpadPan.GestureConfig()
     /// Settings › How to use: a quick flick up is See All, instead of a tap.
@@ -402,14 +403,17 @@ struct TrackpadRecognizer {
             last = centroid
             return []
         }
-        // A straight sweep filters out hand drift, but a clear turn should immediately free both axes.
-        // Once released, keep free movement for the rest of this touch.
+        // Accumulate intentional cross-axis movement across frames: slow turns must work too.
         switch lock {
         case .level:
-            if abs(travel.dy) >= 0.002 && abs(travel.dy) >= abs(travel.dx) * 0.5 { lock = nil }
+            if abs(travel.dy) >= abs(travel.dx) * 0.5 { crossAxisTravel += travel.dy }
+            else { crossAxisTravel = 0 }
+            if abs(crossAxisTravel) >= 0.015 { lock = nil; travel.dy = crossAxisTravel; crossAxisTravel = 0 }
             else { travel.dy = 0 }
         case .plumb:
-            if abs(travel.dx) >= 0.002 && abs(travel.dx) >= abs(travel.dy) * 0.5 { lock = nil }
+            if abs(travel.dx) >= abs(travel.dy) * 0.5 { crossAxisTravel += travel.dx }
+            else { crossAxisTravel = 0 }
+            if abs(crossAxisTravel) >= 0.015 { lock = nil; travel.dx = crossAxisTravel; crossAxisTravel = 0 }
             else { travel.dx = 0 }
         case nil: break
         }
@@ -437,6 +441,7 @@ struct TrackpadRecognizer {
         anchor = nil
         last = nil
         lock = nil
+        crossAxisTravel = 0
         stirred = false
         dragOrigin = nil
         swiped = false

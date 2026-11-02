@@ -295,6 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// F11 still means Show Desktop; rebound, it goes back to the Mac and the new key comes from `Hotkey`.
     private func updateKeyTap() {
         let shortcut = Bindings.shortcut(for: .showDesktop)
+        takeover?.keyTap.update(recordingShortcut: recordingShortcut)
         takeover?.keyTap.update(showDesktopOnF11: !recordingShortcut && shortcut?.keyCode == UInt32(kVK_F11) && shortcut?.modifiers == 0)
         takeover?.keyTap.update(toggleCanvasOnMissionControl: !recordingShortcut && Bindings.shortcut(for: .toggleCanvas) == Command.toggleCanvas.defaultShortcut)
         takeover?.keyTap.update(howToUseOnDefault: !recordingShortcut && Bindings.shortcut(for: .instructions) == Command.instructions.defaultShortcut)

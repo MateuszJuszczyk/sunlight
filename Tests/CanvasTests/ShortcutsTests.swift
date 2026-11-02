@@ -23,6 +23,14 @@ final class ShortcutsTests: XCTestCase {
         Shortcut(keyCode: UInt32(code), modifiers: modifiers, key: character)
     }
 
+    func testReservedKeyTapShortcutsAreRejected() {
+        XCTAssertTrue(key(kVK_Tab, "\t", UInt32(cmdKey)).isReservedByKeyTap)
+        XCTAssertTrue(key(kVK_LeftArrow, "left", UInt32(controlKey)).isReservedByKeyTap)
+        XCTAssertFalse(key(kVK_ANSI_U, "u").isReservedByKeyTap)
+        XCTAssertFalse(Command.showDesktop.defaultShortcut!.isReservedByKeyTap)
+        XCTAssertFalse(Command.toggleCanvas.defaultShortcut!.isReservedByKeyTap)
+    }
+
     // MARK: Defaults
 
     func testTheDefaultsAreTheKeysSunlightAlwaysHad() {

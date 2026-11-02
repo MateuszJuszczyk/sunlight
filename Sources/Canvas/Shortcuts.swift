@@ -50,6 +50,23 @@ struct Shortcut: Hashable, Codable, Sendable {
         keyCode == other.keyCode && modifiers == other.modifiers
     }
 
+    /// KeyTap claims these even when a Carbon hotkey is registered. Reject them in the recorder.
+    var isReservedByKeyTap: Bool {
+        var flags: CGEventFlags = []
+        if modifiers & UInt32(controlKey) != 0 { flags.insert(.maskControl) }
+        if modifiers & UInt32(optionKey) != 0 { flags.insert(.maskAlternate) }
+        if modifiers & UInt32(shiftKey) != 0 { flags.insert(.maskShift) }
+        if modifiers & UInt32(cmdKey) != 0 { flags.insert(.maskCommand) }
+        var state = KeyTap.State()
+        state.entered = true
+        state.placesNewWindow = true
+        state.switcherOpen = true
+        state.showDesktopOnF11 = false
+        state.toggleCanvasOnMissionControl = false
+        state.howToUseOnDefault = false
+        return KeyTap.action(keyCode: Int64(keyCode), flags: flags, state: &state) != .pass
+    }
+
     func matches(_ event: NSEvent) -> Bool {
         keyCode == UInt32(event.keyCode) && modifiers == Shortcut.carbon(event.modifierFlags)
     }

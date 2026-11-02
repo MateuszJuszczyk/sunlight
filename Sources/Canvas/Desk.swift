@@ -216,9 +216,10 @@ final class Desk {
         case .gesture(let gesture):
             // A flick can end a drag mid-way: that canvas gets the gesture, wherever the pan was.
             let target = panning ?? current
-            panning?.cancelTrackpadPan()
+            let command = Bindings.command(for: gesture)
+            panning?.cancelTrackpadPan(preserveOrigin: command == .seeAll)
             panning = nil
-            guard let command = Bindings.command(for: gesture) else { return }
+            guard let command else { return }
             perform(command, on: target)
         }
     }
