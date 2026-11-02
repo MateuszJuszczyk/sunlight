@@ -1419,7 +1419,7 @@ private struct CanvasPane: View {
                 }
                 .disabled(!Settings.snapToWindows)
                 sensitivitySlider("Window centering sensitivity", value: model.bind({ Settings.windowCenteringSensitivity }, { Settings.windowCenteringSensitivity = $0 }), range: 0.5...2,
-                                  detail: "Higher values catch windows from farther away and need less four-finger travel after release.")
+                                  detail: "Above 100%, catches smaller windows and reaches farther. Directional snap also needs less four-finger travel.")
                     .disabled(!Settings.snapToWindows)
                 Button("Restore Camera Sensitivity Defaults") {
                     Settings.resetCameraSensitivities()

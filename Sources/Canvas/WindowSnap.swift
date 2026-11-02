@@ -30,6 +30,12 @@ enum WindowSnap {
         size.width >= visible.width * fill && size.height >= visible.height * fill
     }
 
+    /// Keep the author's reach at 100%, but make each slider step have a stronger effect.
+    private static func sensitivityGain(_ sensitivity: CGFloat) -> CGFloat {
+        let bounded = min(2, max(0.5, sensitivity))
+        return bounded * bounded
+    }
+
     /// The closest eligible window and its 1:1 camera. Equal distances are resolved by world geometry,
     /// rather than the order in which windows happened to be listed.
     static func target(camera: Camera, viewSize: CGSize, visible: CGRect, windows: [Window],
@@ -39,12 +45,16 @@ enum WindowSnap {
         case .normal: reach = normalReach
         case .strong: reach = strongReach
         }
-        let gain = min(2, max(0.5, sensitivity))
+        let gain = sensitivityGain(sensitivity)
         let rx = max(minReach, viewSize.width * reach) * gain, ry = max(minReach, viewSize.height * reach) * gain
         var best: (index: Int, camera: Camera, off: CGFloat, rect: CGRect, spot: CGPoint)?
         for (i, w) in windows.enumerated() {
+            // At 100%, normal mode retains the author's screen-sized-window rule. Raising the
+            // sensitivity gradually admits smaller windows too, so its extra reach is useful there.
+            let minimumFill = fill / max(1, gain)
             guard w.rect.width > 0, w.rect.height > 0,
-                  strength != .normal || isScreenSized(w.rect.size, visible: visible.size) else { continue }
+                  strength != .normal || (w.rect.width >= visible.width * minimumFill &&
+                                          w.rect.height >= visible.height * minimumFill) else { continue }
             let now = camera.toScreen(w.rect)
             let intersection = now.intersection(visible)
             guard !intersection.isNull, intersection.width > 0, intersection.height > 0 else { continue }
@@ -86,7 +96,7 @@ enum WindowSnap {
     static func neighbour(from start: Camera, viewSize: CGSize, windows: [Window],
                           direction: CGVector, preferredIndex: Int? = nil,
                           sensitivity: CGFloat = 1) -> (index: Int, camera: Camera)? {
-        let gain = min(2, max(0.5, sensitivity))
+        let gain = sensitivityGain(sensitivity)
         guard viewSize.width > 0, viewSize.height > 0,
               hypot(direction.dx, direction.dy) >= 18 / gain else { return nil }
         let center = start.center(viewSize: viewSize)
