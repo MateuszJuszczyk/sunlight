@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the canvas does with the pointer, trackpad and keys, and Sunlight's own keys: the reference
-/// Settings › Shortcuts used to be before it became editable, and Instructions › Keyboard Shortcuts.
+/// Settings › How to use › Keyboard shows (it was the menu bar icon's Keyboard & Trackpad submenu).
 /// On the main actor, like `TileMenu`, whose key summaries it reads.
 @MainActor
 enum ShortcutReference {
@@ -40,9 +40,11 @@ enum ShortcutReference {
 
     /// Sunlight's own commands, leaving out the experimental ones that are off (`Settings.arranging`,
     /// `Settings.stripModeEnabled`).
-    static var commandRows: [Row] { commandRows(arranging: Settings.arranging, strip: Settings.stripModeEnabled) }
+    static var commandRows: [Row] {
+        commandRows(arranging: Settings.arranging, strip: Settings.stripModeEnabled, tellSunlight: Settings.tellSunlight)
+    }
 
-    static func commandRows(arranging: Bool, strip: Bool) -> [Row] {
+    static func commandRows(arranging: Bool, strip: Bool, tellSunlight: Bool = false) -> [Row] {
         var rows = [
             Row(title: "Save Layout…", keys: Bindings.shortcut(for: .saveLayout)?.label ?? "—"),
             Row(title: "Restore a layout", keys: Bindings.summary(Command.layoutCommands, default: "⌘1 – ⌘9")),
@@ -54,10 +56,12 @@ enum ShortcutReference {
             ]
         }
         rows.append(Row(title: "Move & Resize a window", keys: TileMenu.tileKeysSummary))
+        rows.append(Row(title: "Picture in Picture", keys: "⌃⌥P · right-click"))
         if strip {
             let key = Bindings.shortcut(for: .toggleStrip)?.label ?? "—"
             rows.append(Row(title: "Strip mode on or off", keys: key + " · then the arrows step"))
         }
+        if tellSunlight { rows.append(Row(title: "Tell Sunlight", keys: "⌃⌥Space")) }
         let desktop = [Bindings.shortcut(for: .showDesktop)?.label, gestureLine(for: .showDesktop)]
             .compactMap { $0 }.joined(separator: " · ")
         rows += [
