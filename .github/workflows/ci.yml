@@ -20,6 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Select Xcode 26
+        run: |
+          ls -d /Applications/Xcode*.app
+          xcode_app=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode_app/Contents/Developer"
+
       - name: Toolchain
         run: |
           sw_vers
