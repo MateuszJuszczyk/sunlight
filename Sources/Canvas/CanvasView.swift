@@ -303,6 +303,11 @@ final class CanvasView: NSView {
     private var passingOn = false
     /// A scroll `onUseScroll` passed on, until the next one starts with the canvas in front.
     private var scrollingOn = false
+    /// The release already made its snap decision. A successful snap discards the scroll's momentum;
+    /// a miss may coast, but must not trigger a second snap when that momentum stops.
+    private var scrollReleaseChecked = false
+    private var discardScrollMomentum = false
+    private var scrollGestureIsPrecise = false
 
     /// The canvas is back in front, or the window a scroll was passed to never got it: scrolls are the canvas's again.
     func endScrollingOn() { scrollingOn = false }
@@ -853,8 +858,7 @@ final class CanvasView: NSView {
         pending.addPan(CameraInput.trackpadDelta(travel, viewWidth: bounds.width, sensitivity: sensitivity))
     }
 
-    /// On release, try an immediate snap before starting the usual inertial coast. Without a target,
-    /// or with automatic centring disabled, preserve the user's existing inertia preference.
+    /// Decide on a snap at finger release, before any inertial coast starts.
     func trackpadPanEnded() {
         let now = CACurrentMediaTime()
         let startCamera = panStartCamera
@@ -864,13 +868,17 @@ final class CanvasView: NSView {
         panTravel = .zero
         panVelocity = Magnetism.Velocity()
         fingersLifted()
-        if Settings.autoCenterAfterFourFingerPan, settleWhenStill, settleAfterFourFingerPan, let startCamera {
+        if settleWhenStill, settleAfterFourFingerPan {
             flushInput()
-            if onFourFingerPanEnd?(startCamera, travel) == true {
-                settleWhenStill = false
-                settleAfterFourFingerPan = false
-                return
+            let snapped: Bool
+            if Settings.autoCenterAfterFourFingerPan, let startCamera {
+                snapped = onFourFingerPanEnd?(startCamera, travel) == true
+            } else {
+                snapped = onSettle?() == true
             }
+            settleWhenStill = false
+            settleAfterFourFingerPan = false
+            if snapped { return }
         }
         guard Settings.panInertia, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         coast = Motion.PanCoast(velocity: v, at: now)
@@ -2553,6 +2561,11 @@ final class CanvasView: NSView {
         // A new scroll with the canvas in front is the canvas's to place: a trackpad's starts with `began`,
         // a mouse wheel's clicks have no phase at all.
         let starts = event.phase == .began || (event.phase == [] && event.momentumPhase == [] && !scrollingOn)
+        if starts {
+            scrollReleaseChecked = false
+            discardScrollMomentum = false
+            scrollGestureIsPrecise = event.hasPreciseScrollingDeltas
+        }
         // A trackpad scroll starting here while a window is in use is over another window or the canvas
         // around it: not the one passed on.
         if starts, inFront || event.phase == .began { scrollingOn = false }
@@ -2563,6 +2576,7 @@ final class CanvasView: NSView {
         // macOS delivers scroll and pinch to inactive windows too; while a real window is in front,
         // moving the camera would silently desync it from its proxy.
         guard inFront else { return }
+        if event.momentumPhase != [], discardScrollMomentum { return }
         // At 1:1 a scroll over a window is the window's, as on the desktop; ⌥ and ⌘ still zoom.
         let screenPoint = topLeftPoint(event)
         let modifiedZoom = Settings.scrollZoomModifier.matches(event.modifierFlags)
@@ -2577,10 +2591,6 @@ final class CanvasView: NSView {
         // pan inertia off in Settings (or Reduce Motion on) they're dropped and the pan stops with the
         // fingers.
         if event.phase == .began || event.phase == .changed { scrollHeld = true }
-        if event.phase == .ended || event.phase == .cancelled {
-            scrollHeld = false
-            fingersLifted()
-        }
         if event.momentumPhase != [],
            !Settings.panInertia || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return }
         beginInput()
@@ -2589,6 +2599,19 @@ final class CanvasView: NSView {
             pending.addZoom(by: exp(-event.scrollingDeltaY * 0.01 * gain), around: screenPoint)
         } else {
             pending.addPan(CGVector(dx: event.scrollingDeltaX * gain, dy: event.scrollingDeltaY * gain))
+        }
+        if event.phase == .ended || event.phase == .cancelled {
+            scrollHeld = false
+            if event.phase == .ended, scrollGestureIsPrecise, !modifiedZoom, Settings.canvasScrollBehavior == .pan {
+                flushInput()
+                discardScrollMomentum = onSettle?() == true
+                scrollReleaseChecked = true
+                settleWhenStill = false
+            } else {
+                fingersLifted()
+            }
+        } else if event.momentumPhase != [], scrollReleaseChecked {
+            settleWhenStill = false
         }
     }
 
