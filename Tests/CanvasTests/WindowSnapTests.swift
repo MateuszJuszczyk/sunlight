@@ -145,6 +145,20 @@ final class WindowSnapTests: XCTestCase {
         XCTAssertNil(fallbackDisabled)
     }
 
+    func testOverviewPanReleaseNeverEntersAWindow() {
+        let size = CGSize(width: 1000, height: 1000)
+        let visible = CGRect(origin: .zero, size: size)
+        let windows = [WindowSnap.Window(rect: visible, spot: .zero),
+                       WindowSnap.Window(rect: visible.offsetBy(dx: 1200, dy: 0), spot: .zero)]
+        let start = Camera(center: CGPoint(x: 500, y: 500), zoom: 0.5, viewSize: size)
+        let released = Camera(center: CGPoint(x: 600, y: 500), zoom: 0.5, viewSize: size)
+        for direction in [nil, CGVector(dx: 100, dy: 0)] as [CGVector?] {
+            XCTAssertNil(WindowSnap.releaseTarget(camera: released, viewSize: size, visible: visible,
+                                                  windows: windows, strength: .strong, sensitivity: 4,
+                                                  panStart: start, direction: direction))
+        }
+    }
+
     func testStrongDoesNotCaptureInvisibleWindowAndCanSnapFromOverview() {
         let hidden = WindowSnap.Window(rect: CGRect(x: 3000, y: 500, width: 20, height: 20), spot: CGPoint(x: -100, y: 100))
         let camera = Camera(origin: CGPoint(x: 3100, y: 400), zoom: 1)

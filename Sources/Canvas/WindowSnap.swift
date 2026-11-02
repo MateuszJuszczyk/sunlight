@@ -109,6 +109,9 @@ enum WindowSnap {
                               strength: Strength, sensitivity: CGFloat, panStart: Camera?,
                               direction: CGVector? = nil, preferredIndex: Int? = nil, allowFallback: Bool = true)
         -> (index: Int, camera: Camera, directional: Bool)? {
+        // A zoomed-out canvas is an overview: panning it must never enter a window on release.
+        // Keep this check here so both directional navigation and ordinary release snap respect it.
+        guard camera.zoom >= 1 - 0.001 else { return nil }
         if let panStart, let direction,
            let next = neighbour(from: panStart, viewSize: viewSize, windows: windows,
                                 direction: direction, preferredIndex: preferredIndex, sensitivity: sensitivity) {
