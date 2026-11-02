@@ -297,6 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let shortcut = Bindings.shortcut(for: .showDesktop)
         takeover?.keyTap.update(showDesktopOnF11: !recordingShortcut && shortcut?.keyCode == UInt32(kVK_F11) && shortcut?.modifiers == 0)
         takeover?.keyTap.update(toggleCanvasOnMissionControl: !recordingShortcut && Bindings.shortcut(for: .toggleCanvas) == Command.toggleCanvas.defaultShortcut)
+        takeover?.keyTap.update(howToUseOnDefault: !recordingShortcut && Bindings.shortcut(for: .instructions) == Command.instructions.defaultShortcut)
     }
 
     /// The panel's Sunlight switch. Off: the canvas goes (`CanvasController.setPaused`), the hotkeys are

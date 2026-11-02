@@ -46,6 +46,7 @@ final class KeyTap: @unchecked Sendable {
         /// Whether F11 still means Show Desktop (`Bindings`): rebound, F11 goes back to the Mac.
         var showDesktopOnF11 = true
         var toggleCanvasOnMissionControl = true
+        var howToUseOnDefault = true
         /// A full-screen app's Space is in front: ⌃← goes back to the canvas's Desktop, as on the Mac.
         var inFullScreenSpace = false
         /// When the Mission Control key went down (the event's timestamp, ns), until it's let go.
@@ -134,9 +135,11 @@ final class KeyTap: @unchecked Sendable {
         state.withLock {
             let desktop = $0.showDesktopOnF11
             let toggle = $0.toggleCanvasOnMissionControl
+            let howToUse = $0.howToUseOnDefault
             $0 = State()
             $0.showDesktopOnF11 = desktop
             $0.toggleCanvasOnMissionControl = toggle
+            $0.howToUseOnDefault = howToUse
         }
         guard let runLoop else { return }
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) { [self] in
@@ -167,6 +170,10 @@ final class KeyTap: @unchecked Sendable {
 
     func update(toggleCanvasOnMissionControl: Bool) {
         state.withLock { $0.toggleCanvasOnMissionControl = toggleCanvasOnMissionControl }
+    }
+
+    func update(howToUseOnDefault: Bool) {
+        state.withLock { $0.howToUseOnDefault = howToUseOnDefault }
     }
 
     /// Whether a full-screen app's Space is in front (`SpacesWatcher`).
@@ -328,7 +335,7 @@ final class KeyTap: @unchecked Sendable {
         }
 
         // ⌘? on any layout (the key that types ?, or ⌘⇧/): How to use, from the canvas or inside a window.
-        if command, !control, !option, symbol == "?" || character == "?" || (keyCode == slash && shift) {
+        if state.howToUseOnDefault, command, !control, !option, (symbol == "?" || character == "?" || (keyCode == slash && shift)) {
             return .send(.howToUse)
         }
 
