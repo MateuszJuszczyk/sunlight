@@ -318,7 +318,7 @@ enum Settings {
     }
 
     static var trackpadCameraSensitivity: Double {
-        get { sensitivity("TrackpadCameraSensitivity", default: Double(cameraPanSensitivity.multiplier) / 1.35, range: 0.25...3) }
+        get { sensitivity("TrackpadCameraSensitivity", default: 1, range: 0.25...3) }
         set { defaults.set(min(3, max(0.25, newValue)), forKey: "TrackpadCameraSensitivity") }
     }
 
@@ -340,7 +340,7 @@ enum Settings {
     }
 
     static var autoCenterAfterFourFingerPan: Bool {
-        get { defaults.object(forKey: autoCenterAfterFourFingerPanKey) as? Bool ?? true }
+        get { defaults.object(forKey: autoCenterAfterFourFingerPanKey) as? Bool ?? false }
         set { defaults.set(newValue, forKey: autoCenterAfterFourFingerPanKey) }
     }
 
@@ -357,7 +357,7 @@ enum Settings {
     }
 
     static var singleClickBehavior: SingleClickBehavior {
-        get { defaults.string(forKey: singleClickBehaviorKey).flatMap(SingleClickBehavior.init(rawValue:)) ?? .centerWindow }
+        get { defaults.string(forKey: singleClickBehaviorKey).flatMap(SingleClickBehavior.init(rawValue:)) ?? .enterAtClickPosition }
         set { defaults.set(newValue.rawValue, forKey: singleClickBehaviorKey) }
     }
 
@@ -517,7 +517,7 @@ enum Settings {
     }
 
     static var windowSnapStrength: WindowSnapStrength {
-        get { defaults.string(forKey: windowSnapStrengthKey).flatMap(WindowSnapStrength.init(rawValue:)) ?? .strong }
+        get { defaults.string(forKey: windowSnapStrengthKey).flatMap(WindowSnapStrength.init(rawValue:)) ?? .normal }
         set { defaults.set(newValue.rawValue, forKey: windowSnapStrengthKey) }
     }
 
@@ -1399,8 +1399,8 @@ private struct CanvasPane: View {
                 sensitivitySlider("Mouse camera sensitivity", value: model.bind({ Settings.mouseCameraSensitivity }, { Settings.mouseCameraSensitivity = $0 }), range: 0.25...3,
                                   detail: "Controls mouse-wheel navigation and pointer dragging on the canvas.")
                 Toggle(isOn: model.bind({ Settings.autoCenterAfterFourFingerPan }, { Settings.autoCenterAfterFourFingerPan = $0 })) {
-                    RowLabel(title: "Center after four-finger pan",
-                             subtitle: "Center on a nearby window after the pan comes to rest.")
+                    RowLabel(title: "Directional snap after four-finger pan",
+                             subtitle: "When released, move to a neighboring window in the direction of travel.")
                 }
                 Toggle(isOn: model.bind({ Settings.panInertia }, { Settings.panInertia = $0 })) {
                     RowLabel(title: "Inertia when panning",

@@ -47,13 +47,13 @@ final class SettingsTests: XCTestCase {
                 }
             }
             keys.forEach { defaults.removeObject(forKey: $0) }
-            XCTAssertTrue(Settings.autoCenterAfterFourFingerPan)
-            XCTAssertEqual(Settings.singleClickBehavior, .centerWindow)
-            XCTAssertEqual(Settings.doubleClickBehavior, .enterAtClickPosition)
-            XCTAssertEqual(Settings.windowClickAction(double: false), .standard(.centerWindow))
+            XCTAssertFalse(Settings.autoCenterAfterFourFingerPan)
+            XCTAssertEqual(Settings.singleClickBehavior, .enterAtClickPosition)
+            XCTAssertEqual(Settings.doubleClickBehavior, .centerWindow)
+            XCTAssertEqual(Settings.windowClickAction(double: false), .standard(.enterAtClickPosition))
             Settings.setWindowClickAction(.command(.leftHalf), double: false)
             XCTAssertEqual(Settings.windowClickAction(double: false), .command(.leftHalf))
-            XCTAssertEqual(Settings.windowClickAction(double: true), .standard(.enterAtClickPosition))
+            XCTAssertEqual(Settings.windowClickAction(double: true), .standard(.centerWindow))
             Settings.setWindowClickAction(.standard(.none), double: false)
             XCTAssertEqual(Settings.windowClickAction(double: false), .standard(.none))
             Settings.singleClickBehavior = .centerWindow
@@ -79,20 +79,20 @@ final class SettingsTests: XCTestCase {
             XCTAssertTrue(Settings.canvasPinchEnabled)
             XCTAssertEqual(Settings.secondaryClickAction, .contextMenu)
             XCTAssertEqual(Settings.windowDragAction, .moveWindow)
-            XCTAssertEqual(Settings.windowClickAction(double: false), .standard(.centerWindow))
+            XCTAssertEqual(Settings.windowClickAction(double: false), .standard(.enterAtClickPosition))
             Settings.singleClickBehavior = .enterAtClickPosition
             XCTAssertEqual(Settings.doubleClickBehavior, .centerWindow)
             Settings.doubleClickBehavior = .none
             Settings.singleClickBehavior = .centerWindow
             XCTAssertEqual(Settings.doubleClickBehavior, .none)
-            XCTAssertEqual(Settings.windowSnapStrength, .strong)
+            XCTAssertEqual(Settings.windowSnapStrength, .normal)
             XCTAssertEqual(Settings.cameraPanSensitivity, .high)
             XCTAssertEqual(Settings.cameraPanSensitivity.multiplier, 1.35)
             XCTAssertEqual(Settings.trackpadCameraSensitivity, 1, accuracy: 0.0001)
             XCTAssertEqual(Settings.mouseCameraSensitivity, 1)
             XCTAssertEqual(Settings.windowCenteringSensitivity, 1)
             Settings.cameraPanSensitivity = .normal
-            XCTAssertEqual(Settings.trackpadCameraSensitivity, 1 / 1.35, accuracy: 0.0001)
+            XCTAssertEqual(Settings.trackpadCameraSensitivity, 1, accuracy: 0.0001)
             Settings.trackpadCameraSensitivity = 2.2
             Settings.cameraPanSensitivity = .veryHigh
             XCTAssertEqual(Settings.trackpadCameraSensitivity, 2.2)
@@ -130,8 +130,8 @@ final class SettingsTests: XCTestCase {
             defaults.set("invalid", forKey: "singleClickBehavior")
             defaults.set("invalid", forKey: "windowSnapStrength")
             defaults.set("invalid", forKey: "cameraPanSensitivity")
-            XCTAssertEqual(Settings.singleClickBehavior, .centerWindow)
-            XCTAssertEqual(Settings.windowSnapStrength, .strong)
+            XCTAssertEqual(Settings.singleClickBehavior, .enterAtClickPosition)
+            XCTAssertEqual(Settings.windowSnapStrength, .normal)
             XCTAssertEqual(Settings.cameraPanSensitivity, .high)
         }
     }

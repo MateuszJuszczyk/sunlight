@@ -12,8 +12,6 @@ final class CanvasView: NSView {
     static let maxZoom: CGFloat = 1.0
     /// Ending a pinch at or above this zoom with a window under the pointer hands off to it.
     static let handoffZoom: CGFloat = 0.9
-    /// A four-finger drag across the trackpad's full width pans this many screen widths.
-    static let trackpadPanGain: CGFloat = 1.5
     /// How far the pointer has to travel before pressing on a window or widget becomes moving it, not a click.
     static let dragSlop: CGFloat = 3
     /// How close, on screen, an edge has to come to a neighbour's before the alignment guides take it.
@@ -846,14 +844,13 @@ final class CanvasView: NSView {
         if !fourFingersHeld { panStartCamera = camera }
         beginInput()
         settleAfterFourFingerPan = true
-        let k = bounds.width * CanvasView.trackpadPanGain
-        let delta = CGVector(dx: travel.dx * k, dy: travel.dy * k)
+        let delta = CameraInput.trackpadDelta(travel, viewWidth: bounds.width, sensitivity: 1)
         fourFingersHeld = true
         panTravel.x += delta.dx
         panTravel.y += delta.dy
         let sensitivity = CGFloat(Settings.trackpadCameraSensitivity)
         panVelocity.add(CGPoint(x: panTravel.x * sensitivity, y: panTravel.y * sensitivity), at: CACurrentMediaTime())
-        pending.addPan(CGVector(dx: delta.dx * sensitivity * 1.35, dy: delta.dy * sensitivity * 1.35))
+        pending.addPan(CameraInput.trackpadDelta(travel, viewWidth: bounds.width, sensitivity: sensitivity))
     }
 
     /// On release, try an immediate snap before starting the usual inertial coast. Without a target,
@@ -912,9 +909,7 @@ final class CanvasView: NSView {
               zoomCoast == nil, now - lastInput > CanvasView.inputLinger, !scrollHeld, !pinchHeld,
               !fourFingersHeld, !panning, dragging == nil, resizing == nil else { return }
         settleWhenStill = false
-        if !settleAfterFourFingerPan || Settings.autoCenterAfterFourFingerPan {
-            _ = onSettle?()
-        }
+        _ = onSettle?()
         settleAfterFourFingerPan = false
     }
 

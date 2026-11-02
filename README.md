@@ -4,12 +4,12 @@ This fork of [Sunlight](https://github.com/spacefarm-digital/sunlight) aims to m
 [Niri](https://github.com/YaLTeR/niri) on Linux to macOS feel more natural. It pairs Sunlight's live
 windows and infinite canvas with faster, Niri-inspired trackpad navigation:
 
-- **Swipe between neighbours.** A four-finger swipe pans freely while held; on release, the camera
-  springs toward a nearby window in the direction of travel. A new gesture interrupts the motion.
-- **Stronger window snapping.** Nearby smaller windows can be centred as well as large windows.
-- **Faster camera movement.** Four-finger pan sensitivity defaults to High (135%) and is configurable.
-- **Quick window entry.** A single overview click centres and enters a window; double-click enters at the
-  clicked position. The single-click action can be changed in Settings.
+- **Swipe between neighbours.** Optionally make a four-finger pan settle toward a nearby window in
+  the direction of travel.
+- **Stronger window snapping.** Optionally centre nearby smaller windows as well as large windows.
+- **Adjustable camera movement.** Tune sensitivity separately for trackpad and mouse; 100% matches Sunlight.
+- **Configurable window entry.** Choose whether a single or double click centres the window or enters
+  it at the clicked position. The defaults match Sunlight.
 
 The goal is a smooth, responsive window-management experience on macOS, not an exact Niri port or a
 claim of benchmarked performance. LiveWindows remains available; this fork does not replace it with
@@ -66,7 +66,7 @@ Desktop all land on it. So it's still your Mac. It just has room now.
   even over a window.
 - 🪟 **Real windows, not screenshots.** With live windows on, the canvas shows the actual windows, scaled
   in place by a small add-on in the Dock. At 1:1 you can click, type and scroll in them right there.
-- 🎯 **Seamless handoff.** Click a window to centre and enter it; double-click to enter at the clicked
+- 🎯 **Seamless handoff.** Click a window to enter it where it is; double-click to bring it to the centre
   position. The Mission Control key (F3) or a four-finger tap takes you back out, and again takes you back in.
 - 🧲 **Neat without trying.** Windows snap to guides and a grid as you drag, resize from their edges, and
   can shove each other out of the way if you want them to (Settings › Windows).
@@ -94,7 +94,7 @@ Desktop all land on it. So it's still your Mac. It just has room now.
 |---|---|---|
 | Zoom | pinch | ⌥ or ⌘ + scroll |
 | Pan | two-finger scroll, or four-finger drag from anywhere | |
-| Go into a window | click to centre it (double-click to enter at the clicked position), or pinch in over it | ⏎ over it |
+| Go into a window | click to enter at the clicked position (double-click to centre it), or pinch in over it | ⏎ over it |
 | Use a window at 1:1 | just click, type and scroll, as on the desktop | |
 | See everything, and back in | four-finger tap | Mission Control key (F3) |
 | Show Desktop | four-finger spread (thumb and three fingers) | F11 |
