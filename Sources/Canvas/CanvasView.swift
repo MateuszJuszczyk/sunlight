@@ -356,7 +356,7 @@ final class CanvasView: NSView {
     /// carrying a four-finger pan or a pinch on after the fingers lift. Scroll, pinch and the trackpad
     /// each arrive on their own clock; the display's is the one that matters.
     private var pending = Motion.PendingInput()
-    private var coast: Motion.PanCoast?
+    private(set) var coast: Motion.PanCoast?
     private var zoomCoast: Motion.ZoomCoast?
     /// The four-finger drag's travel so far and its speed, for the coast when it ends.
     private var panTravel = CGPoint.zero
@@ -848,7 +848,7 @@ final class CanvasView: NSView {
 
     /// Four-finger drag (`TrackpadPan`): `travel` is in trackpad widths, and the content follows it on
     /// the next frame.
-    func trackpadPan(by travel: CGVector) {
+    func trackpadPan(by travel: CGVector, preservingVelocity: Magnetism.Velocity? = nil) {
         if !fourFingersHeld { panStartCamera = camera }
         beginInput()
         settleAfterFourFingerPan = true
@@ -858,16 +858,17 @@ final class CanvasView: NSView {
         panTravel.y += delta.dy
         let sensitivity = CGFloat(Settings.trackpadCameraSensitivity)
         panVelocity.add(CGPoint(x: panTravel.x * sensitivity, y: panTravel.y * sensitivity), at: CACurrentMediaTime())
+        if let preservingVelocity { panVelocity = preservingVelocity }
         pending.addPan(CameraInput.trackpadDelta(travel, viewWidth: bounds.width, sensitivity: sensitivity))
     }
 
     /// Decide on a snap at finger release, before any inertial coast starts.
-    func trackpadPanEnded() {
+    func trackpadPanEnded(releaseVelocity: CGVector? = nil) {
         let now = CACurrentMediaTime()
         let startCamera = panStartCamera
         let travel = CGVector(dx: -panTravel.x, dy: -panTravel.y)
         panStartCamera = nil
-        let v = panVelocity.release(at: now)
+        let v = releaseVelocity ?? panVelocity.release(at: now)
         panTravel = .zero
         panVelocity = Magnetism.Velocity()
         fingersLifted()

@@ -207,7 +207,7 @@ final class CanvasController {
     private var pendingSwitcherCommit = false
     /// Four-finger travel that arrived while the canvas was still coming to the front; applied in
     /// `returnedToCanvas` for the same reason.
-    private var pendingPan: CGVector?
+    private var pendingPan: PendingTrackpadPan?
     private var pendingPanEnded = false
     /// The four-finger drag under way began from a window, so the canvas is in front because of it.
     private var panBroughtCanvas = false
@@ -1398,23 +1398,27 @@ final class CanvasController {
             pendingPanEnded = false
             panBroughtCanvas = !inFront
             if !inFront {
-                pendingPan = .zero
+                pendingPan = PendingTrackpadPan(viewWidth: view.bounds.width, sensitivity: CGFloat(Settings.trackpadCameraSensitivity), at: CACurrentMediaTime())
                 show()
             }
         case .changed(let travel):
-            if let pending = pendingPan {
-                pendingPan = CGVector(dx: pending.dx + travel.dx, dy: pending.dy + travel.dy)
+            if var pending = pendingPan {
+                pending.add(travel, at: CACurrentMediaTime())
+                pendingPan = pending
             } else if inFront {
                 view.trackpadPan(by: travel)
             } else {
                 // Something took the front mid-drag (typically the activation of a window just handed
                 // off to, landing late). The drag still wants the canvas.
                 NSLog("Pan: lost the front mid-drag, bringing the canvas back")
-                pendingPan = travel
+                var pending = PendingTrackpadPan(viewWidth: view.bounds.width, sensitivity: CGFloat(Settings.trackpadCameraSensitivity), at: CACurrentMediaTime())
+                pending.add(travel, at: CACurrentMediaTime())
+                pendingPan = pending
                 show()
             }
         case .ended:
             if pendingPan != nil {
+                pendingPan?.end(at: CACurrentMediaTime())
                 pendingPanEnded = true
             } else if inFront {
                 view.trackpadPanEnded()
@@ -4842,12 +4846,12 @@ final class CanvasController {
             layoutStrip(animated: true, following: wasIn)
         }
         applyPendingSwitcher()
-        if let travel = pendingPan {
+        if let pending = pendingPan {
             pendingPan = nil
-            view.trackpadPan(by: travel)
+            view.trackpadPan(by: pending.travel, preservingVelocity: pending.velocity)
             if pendingPanEnded {
                 pendingPanEnded = false
-                view.trackpadPanEnded()
+                view.trackpadPanEnded(releaseVelocity: pending.releaseVelocity)
             }
         }
         if pendingShowDesktop {

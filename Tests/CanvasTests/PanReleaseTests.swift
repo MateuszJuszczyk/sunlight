@@ -64,4 +64,36 @@ final class PanReleaseTests: XCTestCase {
         XCTAssertEqual(releaseChecks, 1)
         XCTAssertEqual(stillChecks, 0)
     }
+
+    func testPanBufferedWhileReturningToCanvasKeepsGlidingAfterReleaseInGap() throws {
+        try XCTSkipIf(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, "Coasting is disabled by Reduce Motion")
+        let defaults = UserDefaults.standard
+        let keys = ["autoCenterAfterFourFingerPan", "CanvasPanInertia", "TrackpadCameraSensitivity"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        Settings.autoCenterAfterFourFingerPan = false
+        Settings.panInertia = true
+        Settings.trackpadCameraSensitivity = 1
+        var buffered = PendingTrackpadPan(viewWidth: 1000, sensitivity: 1, at: 1)
+        buffered.add(CGVector(dx: -0.2, dy: 0), at: 1.05)
+        buffered.add(CGVector(dx: -0.2, dy: 0), at: 1.1)
+        buffered.end(at: 1.11)
+        let view = CanvasView(frame: NSRect(x: 0, y: 0, width: 1000, height: 1000))
+        let visible = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+        let previous = WindowSnap.Window(rect: visible, spot: .zero)
+        view.onPanRelease = { start in
+            WindowSnap.target(camera: view.camera, viewSize: visible.size, visible: visible,
+                              windows: [previous], sensitivity: 4, requireCenterInside: true,
+                              panStart: start) != nil
+        }
+        view.trackpadPan(by: buffered.travel, preservingVelocity: buffered.velocity)
+        view.trackpadPanEnded(releaseVelocity: buffered.releaseVelocity)
+        XCTAssertNotNil(view.coast, "A miss at release must keep the buffered gesture's inertia")
+        XCTAssertLessThan(view.coast?.velocity.dx ?? 0, -120)
+        view.onPanRelease = nil
+    }
 }
