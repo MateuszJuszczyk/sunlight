@@ -50,10 +50,8 @@ final class TrackpadPan: @unchecked Sendable {
     /// Centroid travel, in trackpad widths, before four fingers on the trackpad count as a drag. Keeps
     /// a four-finger tap or pinch from moving anything.
     fileprivate static let slop: CGFloat = 0.02
-    /// A drag that starts within this angle of horizontal stays level until the fingers lift. No
-    /// four-finger drag is ever quite level, and sweeping along a row of windows shouldn't creep up or
-    /// down (a window's top under the menu bar can't be entered where it is). One within this angle of
-    /// vertical stays plumb the same way.
+    /// A mostly horizontal or vertical drag initially suppresses accidental sideways drift.
+    /// A deliberate turn releases that lock; the same angle also distinguishes straight flicks.
     fileprivate static let axisLock: CGFloat = 22.5 * .pi / 180
     /// A tap's or flick's four fingers land together: the fourth within this long of the first. A
     /// finger that joins a three-finger tap (Look Up) or swipe (back, forward) later never makes one.
@@ -291,8 +289,7 @@ struct TrackpadRecognizer {
     var anchorSpread: CGFloat = 0
     /// The centroid at the previous frame while dragging.
     var last: CGPoint?
-    /// The drag is held level (dy = 0) or plumb (dx = 0), decided as it begins; nil for a free
-    /// (diagonal) drag.
+    /// The initial axis, until the user deliberately steers away from it; nil for free movement.
     var lock: Lock?
     /// Settings › Trackpad: which four-finger gestures have something to do.
     var config = TrackpadPan.GestureConfig()
@@ -405,9 +402,15 @@ struct TrackpadRecognizer {
             last = centroid
             return []
         }
+        // A straight sweep filters out hand drift, but a clear turn should immediately free both axes.
+        // Once released, keep free movement for the rest of this touch.
         switch lock {
-        case .level: travel.dy = 0
-        case .plumb: travel.dx = 0
+        case .level:
+            if abs(travel.dy) >= 0.002 && abs(travel.dy) >= abs(travel.dx) * 0.5 { lock = nil }
+            else { travel.dy = 0 }
+        case .plumb:
+            if abs(travel.dx) >= 0.002 && abs(travel.dx) >= abs(travel.dy) * 0.5 { lock = nil }
+            else { travel.dx = 0 }
         case nil: break
         }
         phases.append(.changed(travel))
